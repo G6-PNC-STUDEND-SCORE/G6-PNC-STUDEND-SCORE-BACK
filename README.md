@@ -1,66 +1,417 @@
-<p align="center"><a href="https://laravel.com" target="_blank"><img src="https://raw.githubusercontent.com/laravel/art/master/logo-lockup/5%20SVG/2%20CMYK/1%20Full%20Color/laravel-logolockup-cmyk-red.svg" width="400" alt="Laravel Logo"></a></p>
+# 🎓 Student Score Management System - Backend
 
-<p align="center">
-<a href="https://github.com/laravel/framework/actions"><img src="https://github.com/laravel/framework/workflows/tests/badge.svg" alt="Build Status"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/dt/laravel/framework" alt="Total Downloads"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/v/laravel/framework" alt="Latest Stable Version"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/l/laravel/framework" alt="License"></a>
-</p>
+## 📖 Overview
 
-## About Laravel
+This repository contains the backend API for the **Student Score Management System**.
 
-Laravel is a web application framework with expressive, elegant syntax. We believe development must be an enjoyable and creative experience to be truly fulfilling. Laravel takes the pain out of development by easing common tasks used in many web projects, such as:
+The backend is developed using **Laravel 12** and follows the RESTful API architecture. It provides secure authentication, role-based authorization, student score management, automatic grade calculation, reporting, and dashboard statistics.
 
-- [Simple, fast routing engine](https://laravel.com/docs/routing).
-- [Powerful dependency injection container](https://laravel.com/docs/container).
-- Multiple back-ends for [session](https://laravel.com/docs/session) and [cache](https://laravel.com/docs/cache) storage.
-- Expressive, intuitive [database ORM](https://laravel.com/docs/eloquent).
-- Database agnostic [schema migrations](https://laravel.com/docs/migrations).
-- [Robust background job processing](https://laravel.com/docs/queues).
-- [Real-time event broadcasting](https://laravel.com/docs/broadcasting).
+The backend communicates with the Vue 3 frontend through REST APIs and stores data in a MySQL database.
 
-Laravel is accessible, powerful, and provides tools required for large, robust applications.
+---
 
-## Learning Laravel
+# 🚀 Features
 
-Laravel has the most extensive and thorough [documentation](https://laravel.com/docs) and video tutorial library of all modern web application frameworks, making it a breeze to get started with the framework.
+## Authentication
 
-You may also try the [Laravel Bootcamp](https://bootcamp.laravel.com), where you will be guided through building a modern Laravel application from scratch.
+* User Login
+* User Logout
+* Password Reset
+* Profile Update
+* Avatar Upload
+* Laravel Sanctum Authentication
 
-If you don't feel like reading, [Laracasts](https://laracasts.com) can help. Laracasts contains thousands of video tutorials on a range of topics including Laravel, modern PHP, unit testing, and JavaScript. Boost your skills by digging into our comprehensive video library.
+## User Management
 
-## Laravel Sponsors
+* Admin Management
+* Teacher Management
+* Role-Based Authorization
 
-We would like to extend our thanks to the following sponsors for funding Laravel development. If you are interested in becoming a sponsor, please visit the [Laravel Partners program](https://partners.laravel.com).
+## Class Management
 
-### Premium Partners
+* Create Class
+* Update Class
+* Delete Class
+* Assign Teacher
 
-- **[Vehikl](https://vehikl.com/)**
-- **[Tighten Co.](https://tighten.co)**
-- **[WebReinvent](https://webreinvent.com/)**
-- **[Kirschbaum Development Group](https://kirschbaumdevelopment.com)**
-- **[64 Robots](https://64robots.com)**
-- **[Curotec](https://www.curotec.com/services/technologies/laravel/)**
-- **[Cyber-Duck](https://cyber-duck.co.uk)**
-- **[DevSquad](https://devsquad.com/hire-laravel-developers)**
-- **[Jump24](https://jump24.co.uk)**
-- **[Redberry](https://redberry.international/laravel/)**
-- **[Active Logic](https://activelogic.com)**
-- **[byte5](https://byte5.de)**
-- **[OP.GG](https://op.gg)**
+## Subject Management
 
-## Contributing
+* Create Subject
+* Update Subject
+* Delete Subject
 
-Thank you for considering contributing to the Laravel framework! The contribution guide can be found in the [Laravel documentation](https://laravel.com/docs/contributions).
+## Student Management
 
-## Code of Conduct
+* Create Student
+* Update Student
+* Delete Student
+* Assign Student to Class
 
-In order to ensure that the Laravel community is welcoming to all, please review and abide by the [Code of Conduct](https://laravel.com/docs/contributions#code-of-conduct).
+## Score Management
 
-## Security Vulnerabilities
+* Quiz Score
+* Assignment Score
+* Midterm Score
+* Final Score
+* Automatic Grade Calculation
 
-If you discover a security vulnerability within Laravel, please send an e-mail to Taylor Otwell via [taylor@laravel.com](mailto:taylor@laravel.com). All security vulnerabilities will be promptly addressed.
+## Reports
 
-## License
+* Student Report Card
+* Class Performance
+* Student Ranking
+* Dashboard Statistics
 
-The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
+---
+
+# 🛠 Technology Stack
+
+| Technology      | Purpose              |
+| --------------- | -------------------- |
+| Laravel 12      | Backend Framework    |
+| PHP 8.3+        | Programming Language |
+| MySQL           | Database             |
+| Laravel Sanctum | Authentication       |
+| Eloquent ORM    | Database ORM         |
+| REST API        | API Architecture     |
+
+---
+
+# 📁 Project Structure
+
+```text
+app/
+├── Http/
+│   ├── Controllers/
+│   │   └── API/
+│   │       ├── AuthController.php
+│   │       ├── UserController.php
+│   │       ├── ClassController.php
+│   │       ├── SubjectController.php
+│   │       ├── StudentController.php
+│   │       ├── ScoreController.php
+│   │       └── ReportController.php
+│   │
+│   ├── Requests/
+│   │   └── API/
+│   │
+│   └── Middleware/
+│
+├── Models/
+│
+├── Services/
+│   └── GradeService.php
+│
+├── Policies/
+│
+├── Providers/
+│
+routes/
+├── api.php
+└── web.php
+
+database/
+├── migrations/
+├── seeders/
+└── factories/
+```
+
+---
+
+# 🗄 Database Tables
+
+## users
+
+| Column     | Type                 | Key      |
+| ---------- | -------------------- | -------- |
+| id         | bigint               | PK       |
+| name       | string               |          |
+| email      | string               | Unique   |
+| password   | string               |          |
+| role       | enum(admin, teacher) |          |
+| avatar     | string               | Nullable |
+| created_at | timestamp            |          |
+| updated_at | timestamp            |          |
+
+---
+
+## classes
+
+| Column     | Type      | Key           |
+| ---------- | --------- | ------------- |
+| id         | bigint    | PK            |
+| name       | string    |               |
+| teacher_id | bigint    | FK → users.id |
+| created_at | timestamp |               |
+| updated_at | timestamp |               |
+
+---
+
+## subjects
+
+| Column     | Type      | Key |
+| ---------- | --------- | --- |
+| id         | bigint    | PK  |
+| name       | string    |     |
+| created_at | timestamp |     |
+| updated_at | timestamp |     |
+
+---
+
+## students
+
+| Column     | Type               | Key             |
+| ---------- | ------------------ | --------------- |
+| id         | bigint             | PK              |
+| class_id   | bigint             | FK → classes.id |
+| name       | string             |                 |
+| photo      | string             | Nullable        |
+| gender     | enum(Male, Female) |                 |
+| created_at | timestamp          |                 |
+| updated_at | timestamp          |                 |
+
+---
+
+## scores
+
+| Column     | Type      | Key              |
+| ---------- | --------- | ---------------- |
+| id         | bigint    | PK               |
+| student_id | bigint    | FK → students.id |
+| subject_id | bigint    | FK → subjects.id |
+| quiz       | decimal   |                  |
+| assignment | decimal   |                  |
+| midterm    | decimal   |                  |
+| final      | decimal   |                  |
+| total      | decimal   |                  |
+| grade      | string    |                  |
+| created_at | timestamp |                  |
+| updated_at | timestamp |                  |
+
+---
+
+## grade_rules
+
+| Column    | Type    | Key |
+| --------- | ------- | --- |
+| id        | bigint  | PK  |
+| min_score | decimal |     |
+| max_score | decimal |     |
+| grade     | string  |     |
+
+---
+
+# 🔑 Primary Keys
+
+| Table       | Primary Key |
+| ----------- | ----------- |
+| users       | id          |
+| classes     | id          |
+| subjects    | id          |
+| students    | id          |
+| scores      | id          |
+| grade_rules | id          |
+
+---
+
+# 🔗 Foreign Keys
+
+| Table    | Foreign Key | References  |
+| -------- | ----------- | ----------- |
+| classes  | teacher_id  | users.id    |
+| students | class_id    | classes.id  |
+| scores   | student_id  | students.id |
+| scores   | subject_id  | subjects.id |
+
+---
+
+# 📊 Entity Relationship Diagram (ERD)
+
+```text
+                    USERS
+                  +---------+
+                  | id (PK) |
+                  +---------+
+                       |
+                       | 1
+                       |
+                       | N
+                  +------------+
+                  |  CLASSES   |
+                  |------------|
+                  | id (PK)    |
+                  | teacher_id |
+                  +------------+
+                       |
+                       | 1
+                       |
+                       | N
+                  +------------+
+                  | STUDENTS   |
+                  |------------|
+                  | id (PK)    |
+                  | class_id   |
+                  +------------+
+                       |
+                       | 1
+                       |
+                       | N
+                  +------------+
+                  |  SCORES    |
+                  |------------|
+                  | id (PK)    |
+                  | student_id |
+                  | subject_id |
+                  +------------+
+                       ^
+                       |
+                       | N
+                       |
+                  +------------+
+                  | SUBJECTS   |
+                  |------------|
+                  | id (PK)    |
+                  +------------+
+```
+
+---
+
+# 🔄 Database Relationships
+
+| Relationship    | Type        |
+| --------------- | ----------- |
+| User → Class    | One to Many |
+| Class → Student | One to Many |
+| Student → Score | One to Many |
+| Subject → Score | One to Many |
+
+---
+
+# 🧮 Grade Calculation
+
+```text
+Final Score =
+(Quiz × 20%)
++ (Assignment × 10%)
++ (Midterm × 30%)
++ (Final × 40%)
+```
+
+The backend automatically calculates:
+
+* Total Score
+* Average Score
+* Grade (A–F)
+* Pass / Fail
+
+using the `GradeService`.
+
+---
+
+# 🔐 Authentication
+
+* Laravel Sanctum
+* Role-Based Authorization
+* API Token Authentication
+* Password Hashing
+* Request Validation
+* Protected API Routes
+
+---
+
+# 📡 Main API Endpoints
+
+| Method | Endpoint             | Description    |
+| ------ | -------------------- | -------------- |
+| POST   | /api/login           | User Login     |
+| POST   | /api/logout          | User Logout    |
+| GET    | /api/classes         | Get Classes    |
+| POST   | /api/classes         | Create Class   |
+| GET    | /api/students        | Get Students   |
+| POST   | /api/students        | Create Student |
+| GET    | /api/subjects        | Get Subjects   |
+| POST   | /api/scores          | Create Score   |
+| PUT    | /api/scores/{id}     | Update Score   |
+| DELETE | /api/scores/{id}     | Delete Score   |
+| GET    | /api/reports/{class} | Class Report   |
+
+---
+
+# ⚙️ Installation
+
+Clone the repository
+
+```bash
+git clone https://github.com/G6-PNC-STUDEND-SCORE/G6-PNC-STUDEND-SCORE-BACK.git
+```
+
+Install dependencies
+
+```bash
+composer install
+```
+
+Create environment file
+
+```bash
+cp .env.example .env
+```
+
+Generate application key
+
+```bash
+php artisan key:generate
+```
+
+Configure your MySQL database in the `.env` file.
+
+Run migrations
+
+```bash
+php artisan migrate
+```
+
+Start the development server
+
+```bash
+php artisan serve
+```
+
+---
+
+# 🌿 Git Workflow
+
+Main branches
+
+* `master`
+* `develop`
+
+Feature workflow
+
+```bash
+git checkout develop
+git pull origin develop
+
+git checkout -b feature/feature-name
+
+git add .
+git commit -m "Add feature"
+
+git push -u origin feature/feature-name
+```
+
+Create a Pull Request from **feature/** → **develop**.
+
+---
+
+# 👥 Team
+
+**Project:** Student Score Management System
+
+**Backend Repository**
+
+* Framework: Laravel 12
+* Database: MySQL
+* Authentication: Laravel Sanctum
+* API: RESTful API
+* Methodology: Agile Scrum
