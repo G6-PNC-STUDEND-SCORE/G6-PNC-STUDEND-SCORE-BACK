@@ -12,10 +12,13 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/logout', [AuthController::class, 'logout']);
     Route::get('/user', [AuthController::class, 'user']);
 
-    // Students
-    Route::apiResource('students', StudentController::class);
-    Route::put('/students/{student}/assign-class', [StudentController::class, 'assignClass']);
+    // Subject routes
+    Route::get('/subjects', [SubjectController::class, 'index']);
+    Route::post('/subjects', [SubjectController::class, 'store']);
+    Route::get('/subjects/{id}', [SubjectController::class, 'show']);
+    Route::put('/subjects/{id}', [SubjectController::class, 'update']);
+    Route::delete('/subjects/{id}', [SubjectController::class, 'destroy']);
 
-    // Classes (for dropdowns)
-    Route::get('/classes/list', [ClassController::class, 'list']);
+    // Teacher routes
+    Route::get('/teachers', [SubjectController::class, 'teachers']);
 });
