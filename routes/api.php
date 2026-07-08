@@ -3,7 +3,8 @@
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\ChartController;
 use App\Http\Controllers\Api\SubjectController;
-use Illuminate\Http\Request;
+use App\Http\Controllers\Api\ClassController;
+use App\Http\Controllers\Api\StudentController;
 use Illuminate\Support\Facades\Route;
 
 Route::post('/login', [AuthController::class, 'login']);
