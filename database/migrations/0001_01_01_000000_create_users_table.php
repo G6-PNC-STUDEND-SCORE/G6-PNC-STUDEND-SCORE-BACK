@@ -17,6 +17,13 @@ return new class extends Migration
             $table->string('email')->unique();
             $table->timestamp('email_verified_at')->nullable();
             $table->string('password');
+            $table->string('phone', 20)->nullable();
+            $table->enum('gender', ['Male', 'Female', 'Other'])->nullable();
+            $table->date('date_of_birth')->nullable();
+            $table->string('profile_photo')->nullable();
+            $table->string('google_id')->nullable()->unique();
+            $table->enum('status', ['active', 'inactive', 'suspended'])->default('active');
+            $table->timestamp('last_login_at')->nullable();
             $table->rememberToken();
             $table->timestamps();
         });

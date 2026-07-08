@@ -8,15 +8,16 @@ return new class extends Migration
 {
     public function up(): void
     {
-        Schema::create('subjects', function (Blueprint $table) {
+        Schema::create('student_number_sequences', function (Blueprint $table) {
             $table->id();
-            $table->string('name');
+            $table->year('intake_year')->unique();
+            $table->unsignedBigInteger('next_sequence')->default(1);
             $table->timestamps();
         });
     }
 
     public function down(): void
     {
-        Schema::dropIfExists('subjects');
+        Schema::dropIfExists('student_number_sequences');
     }
 };
