@@ -1,16 +1,27 @@
 <?php
 
 use App\Http\Controllers\Api\AuthController;
+use App\Http\Controllers\Api\ChartController;
+use App\Http\Controllers\Api\SubjectController;
 use App\Http\Controllers\Api\ClassController;
 use App\Http\Controllers\Api\StudentController;
-use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
 Route::post('/login', [AuthController::class, 'login']);
 
+// Password reset
+Route::post('/forgot-password', [AuthController::class, 'forgotPassword']);
+Route::post('/reset-password', [AuthController::class, 'resetPassword']);
+
+// Public chart data (unauthenticated)
+Route::get('/chart/grade-distribution', [ChartController::class, 'gradeDistribution']);
+Route::get('/chart/subject-performance', [ChartController::class, 'subjectPerformance']);
+Route::get('/chart/summary', [ChartController::class, 'summary']);
+
 Route::middleware('auth:sanctum')->group(function () {
     Route::post('/logout', [AuthController::class, 'logout']);
     Route::get('/user', [AuthController::class, 'user']);
+    Route::patch('/change-password', [AuthController::class, 'changePassword']);
 
     // Subject routes
     Route::get('/subjects', [SubjectController::class, 'index']);
