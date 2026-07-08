@@ -118,13 +118,10 @@ class SubjectController extends Controller
 
     public function teachers()
     {
-        // Get distinct teacher names from subjects table
-        $teachers = Subject::select('teacher')
-            ->whereNotNull('teacher')
-            ->where('teacher', '!=', '')
-            ->distinct()
-            ->orderBy('teacher')
-            ->pluck('teacher');
+        // Get teachers from users table where role is 'teacher'
+        $teachers = \App\Models\User::where('role', 'teacher')
+            ->orderBy('name')
+            ->pluck('name');
 
         return response()->json([
             'success' => true,
