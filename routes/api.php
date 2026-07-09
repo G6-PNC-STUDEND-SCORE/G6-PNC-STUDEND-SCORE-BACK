@@ -1,11 +1,8 @@
 <?php
 
 use App\Http\Controllers\Api\AuthController;
-<<<<<<< HEAD
-use App\Http\Controllers\Api\ClassController;
-=======
+
 use App\Http\Controllers\Api\ChartController;
->>>>>>> 89f08095771340c40dcab33d01cd9989ac4dac40
 use App\Http\Controllers\Api\SubjectController;
 use App\Http\Controllers\Api\ClassController;
 use App\Http\Controllers\Api\StudentController;
