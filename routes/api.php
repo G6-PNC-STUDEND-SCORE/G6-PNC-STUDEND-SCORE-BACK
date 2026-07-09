@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\ChartController;
+use App\Http\Controllers\Api\ProfileController;
 use App\Http\Controllers\Api\SubjectController;
 use App\Http\Controllers\Api\ClassController;
 use App\Http\Controllers\Api\StudentController;
@@ -32,4 +33,9 @@ Route::middleware('auth:sanctum')->group(function () {
 
     // Teacher routes
     Route::get('/teachers', [SubjectController::class, 'teachers']);
+
+    // Profile routes
+    Route::get('/profile', [ProfileController::class, 'show']);
+    Route::put('/profile', [ProfileController::class, 'update']);
+    Route::post('/profile/avatar', [ProfileController::class, 'uploadAvatar']);
 });
