@@ -10,6 +10,33 @@ use Illuminate\Http\Request;
 class StudentController extends Controller
 {
     /**
+     * Get the URL path for a stored photo.
+     */
+    private function storePhoto($file): string
+    {
+        $dir = public_path('uploads/photos');
+        if (!is_dir($dir)) {
+            mkdir($dir, 0755, true);
+        }
+        $filename = time() . '_' . uniqid() . '.' . $file->getClientOriginalExtension();
+        $file->move($dir, $filename);
+        return '/uploads/photos/' . $filename;
+    }
+
+    /**
+     * Delete a photo file.
+     */
+    private function deletePhoto(?string $photoPath): void
+    {
+        if ($photoPath && str_starts_with($photoPath, '/uploads/')) {
+            $fullPath = public_path(ltrim($photoPath, '/'));
+            if (file_exists($fullPath)) {
+                @unlink($fullPath);
+            }
+        }
+    }
+
+    /**
      * Display a listing of students.
      */
     public function index(): JsonResponse
@@ -30,8 +57,15 @@ class StudentController extends Controller
             'name' => 'required|string|max:255',
             'gender' => 'required|in:Male,Female',
             'class_id' => 'nullable|exists:classes,id',
-            'photo' => 'nullable|string|max:255',
+            'photo' => 'nullable|image|mimes:jpeg,png,jpg,gif,webp|max:2048',
+            'status' => 'nullable|in:active,inactive',
         ]);
+
+        if ($request->hasFile('photo')) {
+            $validated['photo'] = $this->storePhoto($request->file('photo'));
+        } else {
+            $validated['photo'] = null;
+        }
 
         $student = Student::create($validated);
 
@@ -56,12 +90,25 @@ class StudentController extends Controller
      */
     public function update(Request $request, Student $student): JsonResponse
     {
-        $validated = $request->validate([
+        $rules = [
             'name' => 'sometimes|string|max:255',
             'gender' => 'sometimes|in:Male,Female',
             'class_id' => 'nullable|exists:classes,id',
-            'photo' => 'nullable|string|max:255',
-        ]);
+            'status' => 'nullable|in:active,inactive',
+        ];
+
+        if ($request->hasFile('photo')) {
+            $rules['photo'] = 'image|mimes:jpeg,png,jpg,gif,webp|max:2048';
+        } else {
+            $rules['photo'] = 'nullable|string|max:500';
+        }
+
+        $validated = $request->validate($rules);
+
+        if ($request->hasFile('photo')) {
+            $this->deletePhoto($student->photo);
+            $validated['photo'] = $this->storePhoto($request->file('photo'));
+        }
 
         $student->update($validated);
 
@@ -76,6 +123,7 @@ class StudentController extends Controller
      */
     public function destroy(Student $student): JsonResponse
     {
+        $this->deletePhoto($student->photo);
         $student->delete();
 
         return response()->json([
