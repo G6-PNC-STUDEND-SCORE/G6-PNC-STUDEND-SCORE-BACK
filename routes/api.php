@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Api\AuthController;
+
 use App\Http\Controllers\Api\ChartController;
 use App\Http\Controllers\Api\ProfileController;
 use App\Http\Controllers\Api\SubjectController;
@@ -24,6 +25,9 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/user', [AuthController::class, 'user']);
     Route::patch('/change-password', [AuthController::class, 'changePassword']);
 
+    // Class routes
+    Route::get('/classes', [ClassController::class, 'index']);
+
     // Subject routes
     Route::get('/subjects', [SubjectController::class, 'index']);
     Route::post('/subjects', [SubjectController::class, 'store']);
@@ -33,9 +37,13 @@ Route::middleware('auth:sanctum')->group(function () {
 
     // Teacher routes
     Route::get('/teachers', [SubjectController::class, 'teachers']);
+<<<<<<< HEAD
 
     // Profile routes
     Route::get('/profile', [ProfileController::class, 'show']);
     Route::put('/profile', [ProfileController::class, 'update']);
     Route::post('/profile/avatar', [ProfileController::class, 'uploadAvatar']);
 });
+=======
+});
+>>>>>>> 1c81cb7a3c6a61899ee5f127fd9a9b2197d60751

@@ -4,19 +4,17 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\SchoolClass;
-use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 
 class ClassController extends Controller
 {
-    /**
-     * Return a simple list of classes (for dropdowns).
-     */
-    public function list(): JsonResponse
+    public function index(Request $request)
     {
-        $classes = SchoolClass::orderBy('name')->get(['id', 'name']);
+        $classes = SchoolClass::all(['id', 'name']);
 
         return response()->json([
-            'classes' => $classes,
+            'success' => true,
+            'data' => $classes
         ]);
     }
 }
