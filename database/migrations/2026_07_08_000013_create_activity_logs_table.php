@@ -20,7 +20,7 @@ return new class extends Migration
             $table->json('new_values')->nullable();
             $table->string('ip_address', 45)->nullable();
             $table->text('user_agent')->nullable();
-            $table->timestamp('created_at')->index();
+            $table->timestamps();
 
             // Indexes for efficient querying
             $table->index('action');
