@@ -55,7 +55,16 @@ class SubjectController extends Controller
             ], 422);
         }
 
-        $subject = Subject::create($request->all());
+        $subjectData = $request->all();
+        $subjectData['code'] = $subjectData['code'] ?? 'SUB' . time(); // Generate default code if not provided
+        $subjectData['credits'] = $subjectData['credits'] ?? 3; // Default to 3 credits if not provided
+
+        // Set default value for teacher if empty
+        if (empty($subjectData['teacher'])) {
+            $subjectData['teacher'] = 'N/A';
+        }
+
+        $subject = Subject::create($subjectData);
 
         return response()->json([
             'success' => true,
@@ -96,7 +105,14 @@ class SubjectController extends Controller
             ], 422);
         }
 
-        $subject->update($request->all());
+        $subjectData = $request->all();
+
+        // Set default value for teacher if empty
+        if (empty($subjectData['teacher'])) {
+            $subjectData['teacher'] = 'N/A';
+        }
+
+        $subject->update($subjectData);
 
         return response()->json([
             'success' => true,

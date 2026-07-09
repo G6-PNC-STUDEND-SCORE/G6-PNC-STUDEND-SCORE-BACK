@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Api\AuthController;
+
 use App\Http\Controllers\Api\ChartController;
 use App\Http\Controllers\Api\SubjectController;
 use App\Http\Controllers\Api\ClassController;
@@ -22,6 +23,9 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/logout', [AuthController::class, 'logout']);
     Route::get('/user', [AuthController::class, 'user']);
     Route::patch('/change-password', [AuthController::class, 'changePassword']);
+
+    // Class routes
+    Route::get('/classes', [ClassController::class, 'index']);
 
     // Subject routes
     Route::get('/subjects', [SubjectController::class, 'index']);
