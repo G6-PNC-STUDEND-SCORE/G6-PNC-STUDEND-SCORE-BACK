@@ -37,13 +37,10 @@ Route::middleware('auth:sanctum')->group(function () {
 
     // Teacher routes
     Route::get('/teachers', [SubjectController::class, 'teachers']);
-<<<<<<< HEAD
 
     // Profile routes
     Route::get('/profile', [ProfileController::class, 'show']);
     Route::put('/profile', [ProfileController::class, 'update']);
     Route::post('/profile/avatar', [ProfileController::class, 'uploadAvatar']);
 });
-=======
-});
->>>>>>> 1c81cb7a3c6a61899ee5f127fd9a9b2197d60751
+
