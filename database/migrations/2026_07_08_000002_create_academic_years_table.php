@@ -8,19 +8,16 @@ return new class extends Migration
 {
     public function up(): void
     {
-        Schema::create('academic_years', function (Blueprint $table) {
+        Schema::create('generations', function (Blueprint $table) {
             $table->id();
-            $table->string('name', 50); // e.g., "2025-2026"
-            $table->date('start_date');
-            $table->date('end_date');
+            $table->year('year')->unique()->comment('e.g. 2025, 2026, 2027');
             $table->boolean('is_current')->default(false);
             $table->timestamps();
-            $table->unique('name');
         });
     }
 
     public function down(): void
     {
-        Schema::dropIfExists('academic_years');
+        Schema::dropIfExists('generations');
     }
 };

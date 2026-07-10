@@ -10,23 +10,12 @@ class Teacher extends Model
 {
     protected $fillable = [
         'user_id',
-        'teacher_code',
         'department_id',
-        'position',
-        'hire_date',
-        'qualification',
-        'specialization',
-        'employment_type',
-        'salary_grade',
-        'office_location',
-        'notes',
     ];
 
     protected function casts(): array
     {
-        return [
-            'hire_date' => 'date',
-        ];
+        return [];
     }
 
     /**

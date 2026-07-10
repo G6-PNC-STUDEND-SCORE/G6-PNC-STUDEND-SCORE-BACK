@@ -11,13 +11,13 @@ return new class extends Migration
         Schema::create('subjects', function (Blueprint $table) {
             $table->id();
             $table->string('name');
-            $table->string('code')->nullable()->unique();
-            $table->string('teacher')->nullable();
-            $table->string('class')->nullable();
-            $table->integer('credits')->nullable();
+            $table->foreignId('teacher_id')->nullable()->constrained('teachers')->nullOnDelete();
+            $table->foreignId('class_id')->nullable()->constrained('classes')->nullOnDelete();
             $table->enum('status', ['Active', 'Inactive'])->default('Active');
-            $table->string('image')->nullable();
             $table->timestamps();
+
+            $table->index('teacher_id');
+            $table->index('class_id');
         });
     }
 

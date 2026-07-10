@@ -12,9 +12,8 @@ class SchoolClass extends Model
 
     protected $fillable = [
         'name',
-        'code',
         'teacher_id',
-        'academic_year_id',
+        'generation_id',
         'description',
         'is_active',
     ];
@@ -42,11 +41,8 @@ class SchoolClass extends Model
         return $this->belongsTo(User::class, 'teacher_id');
     }
 
-    /**
-     * Get the academic year this class belongs to.
-     */
-    public function academicYear(): BelongsTo
+    public function generation(): BelongsTo
     {
-        return $this->belongsTo(AcademicYear::class, 'academic_year_id');
+        return $this->belongsTo(Generation::class, 'generation_id');
     }
 }

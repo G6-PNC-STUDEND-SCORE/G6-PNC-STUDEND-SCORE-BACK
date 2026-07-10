@@ -12,19 +12,14 @@ return new class extends Migration
             $table->id();
             $table->foreignId('user_id')->unique()->constrained('users')->cascadeOnDelete();
 
-            // PNC-style student number fields
-            $table->string('student_number', 20)->unique()->comment('Generated ID: PNC{year}-{seq} e.g. PNC2026-001');
-            $table->year('intake_year')->comment('The year the student first enrolled (e.g. 2026)');
-            $table->unsignedInteger('sequence_number')->comment('Per-year sequential number (1, 2, 3...)');
-
+            $table->foreignId('student_number_sequence_id')->nullable()->constrained('student_number_sequences')->nullOnDelete();
+            $table->foreignId('generation_id')->nullable()->constrained('generations')->nullOnDelete();
             $table->foreignId('class_id')->nullable()->constrained('classes')->nullOnDelete();
-            $table->foreignId('academic_year_id')->nullable()->constrained('academic_years')->nullOnDelete();
-            $table->date('enrollment_date')->nullable();
             $table->timestamps();
 
             $table->index('class_id');
-            $table->index('academic_year_id');
-            $table->index('intake_year');
+            $table->index('student_number_sequence_id');
+            $table->index('generation_id');
         });
     }
 

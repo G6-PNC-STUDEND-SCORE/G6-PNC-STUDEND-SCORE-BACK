@@ -10,19 +10,19 @@ return new class extends Migration
     {
         Schema::create('activity_logs', function (Blueprint $table) {
             $table->id();
-            $table->foreignId('user_id')->constrained('users')->cascadeOnDelete();
-            $table->string('action', 50); // Create, Update, Delete, Login, Logout, Export, Import, ResetPassword
-            $table->string('module', 50); // Students, Teachers, Classes, Subjects, Scores, Users, Roles, Permissions, Reports, Auth, System
+            $table->foreignId('user_id')->nullable()->constrained('users')->nullOnDelete();
+            $table->string('action', 50)->comment('create, update, delete, login, logout, export, import');
+            $table->string('module', 50)->comment('students, teachers, classes, subjects, scores, users, auth');
             $table->text('description');
-            $table->string('model_type', 100)->nullable(); // e.g., App\Models\Student
-            $table->unsignedBigInteger('model_id')->nullable(); // ID of affected record
+            $table->string('model_type', 100)->nullable();
+            $table->unsignedBigInteger('model_id')->nullable();
             $table->json('old_values')->nullable();
             $table->json('new_values')->nullable();
             $table->string('ip_address', 45)->nullable();
-            $table->text('user_agent')->nullable();
-            $table->timestamps();
+            $table->string('user_agent')->nullable();
+            $table->timestamp('created_at')->useCurrent();
 
-            // Indexes for efficient querying
+            $table->index('user_id');
             $table->index('action');
             $table->index('module');
             $table->index(['model_type', 'model_id']);

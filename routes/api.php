@@ -1,48 +1,68 @@
 <?php
 
 use App\Http\Controllers\Api\AuthController;
-
 use App\Http\Controllers\Api\ChartController;
-use App\Http\Controllers\Api\SubjectController;
 use App\Http\Controllers\Api\ClassController;
+use App\Http\Controllers\Api\PermissionController;
+use App\Http\Controllers\Api\ScoreController;
 use App\Http\Controllers\Api\StudentController;
+use App\Http\Controllers\Api\SubjectController;
 use Illuminate\Support\Facades\Route;
 
+// Public routes
 Route::post('/login', [AuthController::class, 'login']);
 Route::post('/google-login', [AuthController::class, 'googleLogin']);
-
-// Password reset
 Route::post('/forgot-password', [AuthController::class, 'forgotPassword']);
 Route::post('/reset-password', [AuthController::class, 'resetPassword']);
 
-// Public chart data (unauthenticated)
 Route::get('/chart/grade-distribution', [ChartController::class, 'gradeDistribution']);
 Route::get('/chart/subject-performance', [ChartController::class, 'subjectPerformance']);
 Route::get('/chart/summary', [ChartController::class, 'summary']);
 
 Route::middleware('auth:sanctum')->group(function () {
+
     Route::post('/logout', [AuthController::class, 'logout']);
     Route::get('/user', [AuthController::class, 'user']);
     Route::patch('/change-password', [AuthController::class, 'changePassword']);
 
-    // Class routes
-    Route::get('/classes', [ClassController::class, 'index']);
+    // ── ADMIN ONLY — Permission & Role Management ────────────────
+    Route::middleware('role:admin')->group(function () {
+        Route::get('/permissions', [PermissionController::class, 'index']);
+        Route::get('/roles', [PermissionController::class, 'roles']);
+        Route::get('/roles/{role}/permissions', [PermissionController::class, 'rolePermissions']);
+        Route::put('/roles/{role}/permissions', [PermissionController::class, 'syncRolePermissions']);
+        Route::post('/roles/{role}/permissions/{permission}', [PermissionController::class, 'grantPermission']);
+        Route::delete('/roles/{role}/permissions/{permission}', [PermissionController::class, 'revokePermission']);
+    });
 
-    // Student routes
-    Route::get('/students', [StudentController::class, 'index']);
-    Route::post('/students', [StudentController::class, 'store']);
-    Route::get('/students/{student}', [StudentController::class, 'show']);
-    Route::put('/students/{student}', [StudentController::class, 'update']);
-    Route::delete('/students/{student}', [StudentController::class, 'destroy']);
-    Route::post('/students/{student}/assign-class', [StudentController::class, 'assignClass']);
+    // ── Students ─────────────────────────────────────────────────
+    Route::get('/students', [StudentController::class, 'index'])->middleware('permission:view-students');
+    Route::get('/students/{student}', [StudentController::class, 'show'])->middleware('permission:view-students');
+    Route::get('/students/{student}/scores', [StudentController::class, 'scores'])->middleware('permission:view-scores');
+    Route::post('/students', [StudentController::class, 'store'])->middleware('permission:create-students');
+    Route::put('/students/{student}', [StudentController::class, 'update'])->middleware('permission:update-students');
+    Route::delete('/students/{student}', [StudentController::class, 'destroy'])->middleware('permission:delete-students');
 
-    // Subject routes
-    Route::get('/subjects', [SubjectController::class, 'index']);
-    Route::post('/subjects', [SubjectController::class, 'store']);
-    Route::get('/subjects/{id}', [SubjectController::class, 'show']);
-    Route::put('/subjects/{id}', [SubjectController::class, 'update']);
-    Route::delete('/subjects/{id}', [SubjectController::class, 'destroy']);
+    // ── Classes ──────────────────────────────────────────────────
+    Route::get('/classes', [ClassController::class, 'index'])->middleware('permission:view-classes');
+    Route::post('/classes', [ClassController::class, 'store'])->middleware('permission:create-classes');
+    Route::put('/classes/{class}', [ClassController::class, 'update'])->middleware('permission:update-classes');
+    Route::delete('/classes/{class}', [ClassController::class, 'destroy'])->middleware('permission:delete-classes');
 
-    // Teacher routes
-    Route::get('/teachers', [SubjectController::class, 'teachers']);
+    // ── Subjects ─────────────────────────────────────────────────
+    Route::get('/subjects', [SubjectController::class, 'index'])->middleware('permission:view-subjects');
+    Route::get('/subjects/{subject}', [SubjectController::class, 'show'])->middleware('permission:view-subjects');
+    Route::post('/subjects', [SubjectController::class, 'store'])->middleware('permission:create-subjects');
+    Route::put('/subjects/{subject}', [SubjectController::class, 'update'])->middleware('permission:update-subjects');
+    Route::delete('/subjects/{subject}', [SubjectController::class, 'destroy'])->middleware('permission:delete-subjects');
+    Route::get('/teachers', [SubjectController::class, 'teachers'])->middleware('permission:view-teachers');
+
+    // ── Scores ───────────────────────────────────────────────────
+    Route::get('/scores', [ScoreController::class, 'index'])->middleware('permission:view-scores');
+    Route::get('/scores/{score}', [ScoreController::class, 'show'])->middleware('permission:view-scores');
+    Route::post('/scores', [ScoreController::class, 'store'])->middleware('permission:create-scores');
+    Route::delete('/scores/{score}', [ScoreController::class, 'destroy'])->middleware('permission:delete-scores');
+    Route::post('/scores/{score}/details', [ScoreController::class, 'addDetail'])->middleware('permission:create-scores');
+    Route::put('/scores/{score}/details/{detail}', [ScoreController::class, 'updateDetail'])->middleware('permission:update-scores');
+    Route::delete('/scores/{score}/details/{detail}', [ScoreController::class, 'deleteDetail'])->middleware('permission:delete-scores');
 });

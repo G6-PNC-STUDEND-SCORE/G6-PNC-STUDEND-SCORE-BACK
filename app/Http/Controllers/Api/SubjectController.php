@@ -4,147 +4,95 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\Subject;
+use App\Models\Teacher;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Validator;
 
 class SubjectController extends Controller
 {
-    public function index(Request $request)
+    // GET /subjects — all authenticated users
+    public function index(Request $request): JsonResponse
     {
-        $query = Subject::query();
+        $user  = $request->user();
+        $query = Subject::with(['teacher.user', 'class']);
 
-        // Search functionality
-        if ($request->has('search')) {
-            $search = $request->search;
-            $query->where(function ($q) use ($search) {
-                $q->where('name', 'like', "%{$search}%")
-                  ->orWhere('code', 'like', "%{$search}%")
-                  ->orWhere('teacher', 'like', "%{$search}%")
-                  ->orWhere('class', 'like', "%{$search}%");
-            });
+        // Teacher only sees their own subjects
+        if ($user->hasRole('teacher')) {
+            $teacher = Teacher::where('user_id', $user->id)->first();
+            if ($teacher) {
+                $query->where('teacher_id', $teacher->id);
+            }
         }
 
-        // Filter by status
-        if ($request->has('status')) {
+        if ($request->search) {
+            $query->where('name', 'like', "%{$request->search}%");
+        }
+
+        if ($request->status) {
             $query->where('status', $request->status);
         }
 
-        $subjects = $query->get();
-
-        return response()->json([
-            'success' => true,
-            'data' => $subjects
-        ]);
+        return response()->json($query->get());
     }
 
-    public function store(Request $request)
+    // GET /subjects/{subject} — all authenticated users
+    public function show(Subject $subject): JsonResponse
     {
-        $validator = Validator::make($request->all(), [
-            'name' => 'required|string|max:255',
-            'teacher' => 'nullable|string|max:255',
-            'class' => 'required|string|max:50',
-            'status' => 'required|in:Active,Inactive',
-            'image' => 'nullable|string|max:255',
-        ]);
-
-        if ($validator->fails()) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Validation error',
-                'errors' => $validator->errors()
-            ], 422);
-        }
-
-        $subjectData = $request->all();
-        $subjectData['code'] = $subjectData['code'] ?? 'SUB' . time(); // Generate default code if not provided
-        $subjectData['credits'] = $subjectData['credits'] ?? 3; // Default to 3 credits if not provided
-
-        // Set default value for teacher if empty
-        if (empty($subjectData['teacher'])) {
-            $subjectData['teacher'] = 'N/A';
-        }
-
-        $subject = Subject::create($subjectData);
-
-        return response()->json([
-            'success' => true,
-            'message' => 'Subject created successfully',
-            'data' => $subject
-        ], 201);
+        return response()->json($subject->load(['teacher.user', 'class']));
     }
 
-    public function show($id)
+    // POST /subjects — admin only
+    public function store(Request $request): JsonResponse
     {
-        $subject = Subject::findOrFail($id);
-
-        return response()->json([
-            'success' => true,
-            'data' => $subject
+        $request->validate([
+            'name'       => 'required|string|max:255',
+            'teacher_id' => 'nullable|exists:teachers,id',
+            'class_id'   => 'nullable|exists:classes,id',
+            'status'     => 'in:Active,Inactive',
         ]);
+
+        $subject = Subject::create([
+            'name'       => $request->name,
+            'teacher_id' => $request->teacher_id,
+            'class_id'   => $request->class_id,
+            'status'     => $request->status ?? 'Active',
+        ]);
+
+        return response()->json($subject->load(['teacher.user', 'class']), 201);
     }
 
-    public function update(Request $request, $id)
+    // PUT /subjects/{subject} — admin only
+    public function update(Request $request, Subject $subject): JsonResponse
     {
-        $subject = Subject::findOrFail($id);
-
-        $validator = Validator::make($request->all(), [
-            'name' => 'required|string|max:255',
-            'code' => 'nullable|string|max:50|unique:subjects,code,' . $id,
-            'teacher' => 'nullable|string|max:255',
-            'class' => 'required|string|max:50',
-            'credits' => 'nullable|integer|min:1|max:10',
-            'status' => 'required|in:Active,Inactive',
-            'image' => 'nullable|string|max:255',
+        $request->validate([
+            'name'       => 'sometimes|string|max:255',
+            'teacher_id' => 'nullable|exists:teachers,id',
+            'class_id'   => 'nullable|exists:classes,id',
+            'status'     => 'in:Active,Inactive',
         ]);
 
-        if ($validator->fails()) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Validation error',
-                'errors' => $validator->errors()
-            ], 422);
-        }
+        $subject->update($request->only('name', 'teacher_id', 'class_id', 'status'));
 
-        $subjectData = $request->all();
-
-        // Set default value for teacher if empty
-        if (empty($subjectData['teacher'])) {
-            $subjectData['teacher'] = 'N/A';
-        }
-
-        $subject->update($subjectData);
-
-        return response()->json([
-            'success' => true,
-            'message' => 'Subject updated successfully',
-            'data' => $subject
-        ]);
+        return response()->json($subject->fresh()->load(['teacher.user', 'class']));
     }
 
-    public function destroy($id)
+    // DELETE /subjects/{subject} — admin only
+    public function destroy(Subject $subject): JsonResponse
     {
-        $subject = Subject::findOrFail($id);
         $subject->delete();
-
-        return response()->json([
-            'success' => true,
-            'message' => 'Subject deleted successfully'
-        ]);
+        return response()->json(['message' => 'Subject deleted successfully.']);
     }
 
-    public function teachers()
+    // GET /teachers — admin & teacher
+    public function teachers(): JsonResponse
     {
-        // Get distinct teacher names from subjects table
-        $teachers = Subject::select('teacher')
-            ->whereNotNull('teacher')
-            ->where('teacher', '!=', '')
-            ->distinct()
-            ->orderBy('teacher')
-            ->pluck('teacher');
+        $teachers = Teacher::with('user', 'department')->get()
+            ->map(fn($t) => [
+                'id'         => $t->id,
+                'name'       => $t->user->name,
+                'department' => $t->department->name ?? null,
+            ]);
 
-        return response()->json([
-            'success' => true,
-            'data' => $teachers
-        ]);
+        return response()->json($teachers);
     }
 }

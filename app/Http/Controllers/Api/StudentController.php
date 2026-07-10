@@ -3,107 +3,111 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\Score;
 use App\Models\Student;
-use App\Models\SchoolClass;
+use App\Models\StudentNumberSequence;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 
 class StudentController extends Controller
 {
-    /**
-     * Display a listing of students.
-     */
-    public function index(): JsonResponse
+    // GET /students — admin & teacher see all, student sees only themselves
+    public function index(Request $request): JsonResponse
     {
-        $students = Student::with(['class', 'academicYear', 'user'])
-            ->orderBy('student_number')
-            ->get();
+        $user = $request->user();
 
-        return response()->json([
-            'students' => $students,
-        ]);
+        if ($user->hasRole('student')) {
+            $students = Student::with(['user', 'class', 'generation', 'studentNumberSequence'])
+                ->where('user_id', $user->id)
+                ->get();
+        } else {
+            $students = Student::with(['user', 'class', 'generation', 'studentNumberSequence'])
+                ->get();
+        }
+
+        return response()->json($students);
     }
 
-    /**
-     * Store a newly created student.
-     */
+    // GET /students/{student}
+    public function show(Request $request, Student $student): JsonResponse
+    {
+        $user = $request->user();
+
+        if ($user->hasRole('student') && $student->user_id !== $user->id) {
+            return response()->json(['message' => 'Forbidden.'], 403);
+        }
+
+        return response()->json($student->load(['user', 'class', 'generation', 'studentNumberSequence', 'scores.details', 'scores.subject', 'scores.term']));
+    }
+
+    // POST /students — admin only
     public function store(Request $request): JsonResponse
     {
-        $validated = $request->validate([
-            'user_id' => 'required|exists:users,id',
-            'student_number' => 'required|string|max:20|unique:students,student_number',
-            'intake_year' => 'required|integer',
-            'sequence_number' => 'required|integer',
-            'class_id' => 'nullable|exists:classes,id',
-            'academic_year_id' => 'nullable|exists:academic_years,id',
-            'enrollment_date' => 'nullable|date',
+        $request->validate([
+            'user_id'       => 'required|exists:users,id|unique:students,user_id',
+            'generation_id' => 'nullable|exists:generations,id',
+            'class_id'      => 'nullable|exists:classes,id',
         ]);
 
-        $student = Student::create($validated);
+        DB::beginTransaction();
+        try {
+            $intakeYear = now()->year;
+            $nextSeq    = StudentNumberSequence::where('intake_year', $intakeYear)->count() + 1;
 
-        return response()->json([
-            'message' => 'Student created successfully',
-            'student' => $student->load(['class', 'academicYear', 'user']),
-        ], 201);
+            $sequence = StudentNumberSequence::create([
+                'intake_year'    => $intakeYear,
+                'student_number' => sprintf('PNC%d-%03d', $intakeYear, $nextSeq),
+            ]);
+
+            $student = Student::create([
+                'user_id'                    => $request->user_id,
+                'student_number_sequence_id' => $sequence->id,
+                'generation_id'              => $request->generation_id,
+                'class_id'                   => $request->class_id,
+            ]);
+
+            DB::commit();
+            return response()->json($student->load(['user', 'class', 'generation', 'studentNumberSequence']), 201);
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return response()->json(['message' => $e->getMessage()], 500);
+        }
     }
 
-    /**
-     * Display the specified student.
-     */
-    public function show(Student $student): JsonResponse
-    {
-        return response()->json([
-            'student' => $student->load(['class', 'academicYear', 'user']),
-        ]);
-    }
-
-    /**
-     * Update the specified student.
-     */
+    // PUT /students/{student} — admin only
     public function update(Request $request, Student $student): JsonResponse
     {
-        $validated = $request->validate([
-            'class_id' => 'nullable|exists:classes,id',
-            'academic_year_id' => 'nullable|exists:academic_years,id',
-            'enrollment_date' => 'nullable|date',
+        $request->validate([
+            'generation_id' => 'nullable|exists:generations,id',
+            'class_id'      => 'nullable|exists:classes,id',
         ]);
 
-        $student->update($validated);
+        $student->update($request->only('generation_id', 'class_id'));
 
-        return response()->json([
-            'message' => 'Student updated successfully',
-            'student' => $student->fresh()->load(['class', 'academicYear', 'user']),
-        ]);
+        return response()->json($student->fresh()->load(['user', 'class', 'generation', 'studentNumberSequence']));
     }
 
-    /**
-     * Remove the specified student.
-     */
+    // DELETE /students/{student} — admin only
     public function destroy(Student $student): JsonResponse
     {
         $student->delete();
-
-        return response()->json([
-            'message' => 'Student deleted successfully',
-        ]);
+        return response()->json(['message' => 'Student deleted successfully.']);
     }
 
-    /**
-     * Assign student to a class.
-     */
-    public function assignClass(Request $request, Student $student): JsonResponse
+    // GET /students/{student}/scores — student sees own, teacher & admin see all
+    public function scores(Request $request, Student $student): JsonResponse
     {
-        $validated = $request->validate([
-            'class_id' => 'required|exists:classes,id',
-        ]);
+        $user = $request->user();
 
-        $student->update([
-            'class_id' => $validated['class_id'],
-        ]);
+        if ($user->hasRole('student') && $student->user_id !== $user->id) {
+            return response()->json(['message' => 'Forbidden.'], 403);
+        }
 
-        return response()->json([
-            'message' => 'Student assigned to class successfully',
-            'student' => $student->fresh()->load(['class', 'academicYear', 'user']),
-        ]);
+        $scores = Score::with(['details', 'subject', 'term'])
+            ->where('student_id', $student->id)
+            ->get();
+
+        return response()->json($scores);
     }
 }
