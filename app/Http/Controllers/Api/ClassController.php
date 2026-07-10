@@ -24,7 +24,10 @@ class ClassController extends Controller
             }
         }
 
-        return response()->json($query->get());
+        return response()->json([
+            'success' => true,
+            'data'    => $query->get(),
+        ]);
     }
 
     // POST /classes — admin only
@@ -39,7 +42,11 @@ class ClassController extends Controller
 
         $class = SchoolClass::create($request->only('name', 'teacher_id', 'generation_id', 'description'));
 
-        return response()->json($class->load(['teacher.user', 'generation']), 201);
+        return response()->json([
+            'success' => true,
+            'data'    => $class->load(['teacher.user', 'generation']),
+            'message' => 'Class created successfully',
+        ], 201);
     }
 
     // PUT /classes/{class} — admin only
@@ -55,13 +62,20 @@ class ClassController extends Controller
 
         $class->update($request->only('name', 'teacher_id', 'generation_id', 'description', 'is_active'));
 
-        return response()->json($class->fresh()->load(['teacher.user', 'generation']));
+        return response()->json([
+            'success' => true,
+            'data'    => $class->fresh()->load(['teacher.user', 'generation']),
+            'message' => 'Class updated successfully',
+        ]);
     }
 
     // DELETE /classes/{class} — admin only
     public function destroy(SchoolClass $class): JsonResponse
     {
         $class->delete();
-        return response()->json(['message' => 'Class deleted successfully.']);
+        return response()->json([
+            'success' => true,
+            'message' => 'Class deleted successfully',
+        ]);
     }
 }

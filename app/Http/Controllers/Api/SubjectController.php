@@ -32,13 +32,19 @@ class SubjectController extends Controller
             $query->where('status', $request->status);
         }
 
-        return response()->json($query->get());
+        return response()->json([
+            'success' => true,
+            'data'    => $query->get(),
+        ]);
     }
 
     // GET /subjects/{subject} — all authenticated users
     public function show(Subject $subject): JsonResponse
     {
-        return response()->json($subject->load(['teacher.user', 'class']));
+        return response()->json([
+            'success' => true,
+            'data'    => $subject->load(['teacher.user', 'class']),
+        ]);
     }
 
     // POST /subjects — admin only
@@ -58,7 +64,11 @@ class SubjectController extends Controller
             'status'     => $request->status ?? 'Active',
         ]);
 
-        return response()->json($subject->load(['teacher.user', 'class']), 201);
+        return response()->json([
+            'success' => true,
+            'data'    => $subject->load(['teacher.user', 'class']),
+            'message' => 'Subject created successfully',
+        ], 201);
     }
 
     // PUT /subjects/{subject} — admin only
@@ -73,14 +83,21 @@ class SubjectController extends Controller
 
         $subject->update($request->only('name', 'teacher_id', 'class_id', 'status'));
 
-        return response()->json($subject->fresh()->load(['teacher.user', 'class']));
+        return response()->json([
+            'success' => true,
+            'data'    => $subject->fresh()->load(['teacher.user', 'class']),
+            'message' => 'Subject updated successfully',
+        ]);
     }
 
     // DELETE /subjects/{subject} — admin only
     public function destroy(Subject $subject): JsonResponse
     {
         $subject->delete();
-        return response()->json(['message' => 'Subject deleted successfully.']);
+        return response()->json([
+            'success' => true,
+            'message' => 'Subject deleted successfully',
+        ]);
     }
 
     // GET /teachers — admin & teacher
@@ -88,11 +105,14 @@ class SubjectController extends Controller
     {
         $teachers = Teacher::with('user', 'department')->get()
             ->map(fn($t) => [
-                'id'         => $t->id,
-                'name'       => $t->user->name,
-                'department' => $t->department->name ?? null,
-            ]);
+                'id'   => $t->id,
+                'name' => $t->user->name,
+            ])
+            ->values();
 
-        return response()->json($teachers);
+        return response()->json([
+            'success' => true,
+            'data'    => $teachers,
+        ]);
     }
 }

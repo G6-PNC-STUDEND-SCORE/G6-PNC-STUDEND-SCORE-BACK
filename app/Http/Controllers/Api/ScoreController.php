@@ -26,13 +26,19 @@ class ScoreController extends Controller
             $query->where('term_id', $request->term_id);
         }
 
-        return response()->json($query->get());
+        return response()->json([
+            'success' => true,
+            'data' => $query->get(),
+        ]);
     }
 
     // GET /scores/{score}
     public function show(Score $score): JsonResponse
     {
-        return response()->json($score->load(['details', 'student.user', 'subject', 'term']));
+        return response()->json([
+            'success' => true,
+            'data' => $score->load(['details', 'student.user', 'subject', 'term']),
+        ]);
     }
 
     // POST /scores
@@ -74,7 +80,10 @@ class ScoreController extends Controller
             $this->recalculateTotal($score);
             DB::commit();
 
-            return response()->json($score->load('details'), 201);
+            return response()->json([
+                'success' => true,
+                'data' => $score->load('details'),
+            ], 201);
         } catch (\Exception $e) {
             DB::rollBack();
             return response()->json(['message' => $e->getMessage()], 500);
@@ -100,7 +109,10 @@ class ScoreController extends Controller
 
         $this->recalculateTotal($score);
 
-        return response()->json($score->load('details'), 201);
+        return response()->json([
+            'success' => true,
+            'data' => $score->load('details'),
+        ], 201);
     }
 
     // PUT /scores/{score}/details/{detail} — update a specific detail (e.g. enter quiz mark)
@@ -119,7 +131,10 @@ class ScoreController extends Controller
         $detail->update($request->only('label', 'mark'));
         $this->recalculateTotal($score);
 
-        return response()->json($score->load('details'));
+        return response()->json([
+            'success' => true,
+            'data' => $score->load('details'),
+        ]);
     }
 
     // DELETE /scores/{score}/details/{detail} — remove a quiz
@@ -132,7 +147,10 @@ class ScoreController extends Controller
         $detail->delete();
         $this->recalculateTotal($score);
 
-        return response()->json($score->load('details'));
+        return response()->json([
+            'success' => true,
+            'data' => $score->load('details'),
+        ]);
     }
 
     // DELETE /scores/{score}

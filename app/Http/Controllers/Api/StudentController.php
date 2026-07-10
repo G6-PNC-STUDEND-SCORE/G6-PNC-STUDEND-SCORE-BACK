@@ -26,7 +26,9 @@ class StudentController extends Controller
                 ->get();
         }
 
-        return response()->json($students);
+        return response()->json([
+            'students' => $students,
+        ]);
     }
 
     // GET /students/{student}
@@ -38,7 +40,9 @@ class StudentController extends Controller
             return response()->json(['message' => 'Forbidden.'], 403);
         }
 
-        return response()->json($student->load(['user', 'class', 'generation', 'studentNumberSequence', 'scores.details', 'scores.subject', 'scores.term']));
+        return response()->json([
+            'student' => $student->load(['user', 'class', 'generation', 'studentNumberSequence', 'scores.details', 'scores.subject', 'scores.term']),
+        ]);
     }
 
     // POST /students — admin only
@@ -60,6 +64,21 @@ class StudentController extends Controller
                 'student_number' => sprintf('PNC%d-%03d', $intakeYear, $nextSeq),
             ]);
 
+            // Update the user's name, gender if provided
+            $user = \App\Models\User::find($request->user_id);
+            if ($user) {
+                $userData = [];
+                if ($request->filled('name')) {
+                    $userData['name'] = $request->name;
+                }
+                if ($request->filled('gender')) {
+                    $userData['gender'] = $request->gender;
+                }
+                if (!empty($userData)) {
+                    $user->update($userData);
+                }
+            }
+
             $student = Student::create([
                 'user_id'                    => $request->user_id,
                 'student_number_sequence_id' => $sequence->id,
@@ -68,7 +87,9 @@ class StudentController extends Controller
             ]);
 
             DB::commit();
-            return response()->json($student->load(['user', 'class', 'generation', 'studentNumberSequence']), 201);
+            return response()->json([
+                'student' => $student->load(['user', 'class', 'generation', 'studentNumberSequence']),
+            ], 201);
         } catch (\Exception $e) {
             DB::rollBack();
             return response()->json(['message' => $e->getMessage()], 500);
@@ -81,11 +102,31 @@ class StudentController extends Controller
         $request->validate([
             'generation_id' => 'nullable|exists:generations,id',
             'class_id'      => 'nullable|exists:classes,id',
+            'name'          => 'nullable|string|max:255',
+            'gender'        => 'nullable|in:Male,Female,Other',
+            'status'        => 'nullable|in:active,inactive,suspended',
         ]);
 
         $student->update($request->only('generation_id', 'class_id'));
 
-        return response()->json($student->fresh()->load(['user', 'class', 'generation', 'studentNumberSequence']));
+        // Update the user's name, gender, status if provided
+        $userData = [];
+        if ($request->filled('name')) {
+            $userData['name'] = $request->name;
+        }
+        if ($request->filled('gender')) {
+            $userData['gender'] = $request->gender;
+        }
+        if ($request->filled('status')) {
+            $userData['status'] = $request->status;
+        }
+        if (!empty($userData)) {
+            $student->user()->update($userData);
+        }
+
+        return response()->json([
+            'student' => $student->fresh()->load(['user', 'class', 'generation', 'studentNumberSequence']),
+        ]);
     }
 
     // DELETE /students/{student} — admin only
@@ -93,6 +134,22 @@ class StudentController extends Controller
     {
         $student->delete();
         return response()->json(['message' => 'Student deleted successfully.']);
+    }
+
+    // PUT /students/{student}/assign-class — assign a class to a student
+    public function assignClass(Request $request, Student $student): JsonResponse
+    {
+        $request->validate([
+            'class_id' => 'required|exists:classes,id',
+        ]);
+
+        $student->update([
+            'class_id' => $request->class_id,
+        ]);
+
+        return response()->json([
+            'student' => $student->fresh()->load(['user', 'class', 'generation', 'studentNumberSequence']),
+        ]);
     }
 
     // GET /students/{student}/scores — student sees own, teacher & admin see all

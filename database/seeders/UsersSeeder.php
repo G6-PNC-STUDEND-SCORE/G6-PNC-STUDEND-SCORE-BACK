@@ -31,13 +31,14 @@ class UsersSeeder extends Seeder
         $studentRole = Role::where('slug', 'student')->first();
 
         // Create Admin user
-            $admin = User::firstOrCreate(
+            User::updateOrCreate(
                 ['email' => 'admin@gmail.com'],
                 [
                     'name' => 'Admin',
                     'password' => Hash::make('12345678'),
                     'role_id' => $adminRole->id,
                     'status' => 'active',
+                    'gender' => 'Male',
                 ]
             );
 
@@ -48,14 +49,21 @@ class UsersSeeder extends Seeder
             'him.hey@passerellesnumeriques.org' => 'Him Hey',
         ];
 
+        $teacherGenders = [
+            'yon@passerellesnumeriques.org' => 'Male',
+            'rady.y@passerellesnumeriques.org' => 'Female',
+            'him.hey@passerellesnumeriques.org' => 'Male',
+        ];
+
         foreach ($teacherEmails as $email => $name) {
-            $teacher = User::firstOrCreate(
+            User::updateOrCreate(
                 ['email' => $email],
                 [
                     'name' => $name,
                     'password' => Hash::make('12345678'),
                     'role_id' => $teacherRole->id,
                     'status' => 'active',
+                    'gender' => $teacherGenders[$email] ?? 'Male',
                 ]
             );
         }
@@ -70,14 +78,24 @@ class UsersSeeder extends Seeder
             'ream.khorn@student.passerellesnumeriques.org' => 'Ream Khorn',
         ];
 
+        $studentGenders = [
+            'roeurn.ros@student.passerellesnumeriques.org' => 'Male',
+            'sreyvik.von@student.passerellesnumeriques.org' => 'Female',
+            'makara.pinn@student.passerellesnumeriques.org' => 'Male',
+            'makara.pon@student.passerellesnumeriques.org' => 'Male',
+            'sreymao.lin@student.passerellesnumeriques.org' => 'Female',
+            'ream.khorn@student.passerellesnumeriques.org' => 'Male',
+        ];
+
         foreach ($studentEmails as $email => $name) {
-            $student = User::firstOrCreate(
+            User::updateOrCreate(
                 ['email' => $email],
                 [
                     'name' => $name,
                     'password' => Hash::make('12345678'),
                     'role_id' => $studentRole->id,
                     'status' => 'active',
+                    'gender' => $studentGenders[$email] ?? null,
                 ]
             );
         }

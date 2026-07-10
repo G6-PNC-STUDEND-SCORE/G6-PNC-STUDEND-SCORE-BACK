@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Subject extends Model
@@ -12,17 +13,33 @@ class Subject extends Model
 
     protected $fillable = [
         'name',
-        'code',
-        'teacher',
-        'class',
-        'credits',
+        'teacher_id',
+        'class_id',
         'status',
-        'image',
     ];
 
-    protected $casts = [
-        'credits' => 'integer',
-    ];
+    protected function casts(): array
+    {
+        return [
+            'status' => 'string',
+        ];
+    }
+
+    /**
+     * The teacher assigned to this subject.
+     */
+    public function teacher(): BelongsTo
+    {
+        return $this->belongsTo(Teacher::class, 'teacher_id');
+    }
+
+    /**
+     * The class this subject is taught in.
+     */
+    public function class(): BelongsTo
+    {
+        return $this->belongsTo(SchoolClass::class, 'class_id');
+    }
 
     /**
      * The scores recorded for this subject.
