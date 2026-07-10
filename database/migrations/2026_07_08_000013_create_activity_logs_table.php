@@ -26,7 +26,6 @@ return new class extends Migration
             $table->index('action');
             $table->index('module');
             $table->index(['model_type', 'model_id']);
-            $table->index('created_at');
         });
     }
 
