@@ -11,10 +11,10 @@ return new class extends Migration
         Schema::create('subjects', function (Blueprint $table) {
             $table->id();
             $table->string('name');
-            $table->string('code')->unique();
-            $table->string('teacher');
-            $table->string('class');
-            $table->integer('credits');
+            $table->string('code')->nullable()->unique();
+            $table->string('teacher')->nullable();
+            $table->string('class')->nullable();
+            $table->integer('credits')->nullable();
             $table->enum('status', ['Active', 'Inactive'])->default('Active');
             $table->string('image')->nullable();
             $table->timestamps();

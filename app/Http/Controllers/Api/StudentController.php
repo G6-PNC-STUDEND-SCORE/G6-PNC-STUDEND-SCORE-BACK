@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\Student;
+use App\Models\SchoolClass;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -14,7 +15,9 @@ class StudentController extends Controller
      */
     public function index(): JsonResponse
     {
-        $students = Student::with('class')->orderBy('name')->get();
+        $students = Student::with(['class', 'academicYear', 'user'])
+            ->orderBy('student_number')
+            ->get();
 
         return response()->json([
             'students' => $students,
@@ -27,17 +30,20 @@ class StudentController extends Controller
     public function store(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'name' => 'required|string|max:255',
-            'gender' => 'required|in:Male,Female',
+            'user_id' => 'required|exists:users,id',
+            'student_number' => 'required|string|max:20|unique:students,student_number',
+            'intake_year' => 'required|integer',
+            'sequence_number' => 'required|integer',
             'class_id' => 'nullable|exists:classes,id',
-            'photo' => 'nullable|string|max:255',
+            'academic_year_id' => 'nullable|exists:academic_years,id',
+            'enrollment_date' => 'nullable|date',
         ]);
 
         $student = Student::create($validated);
 
         return response()->json([
             'message' => 'Student created successfully',
-            'student' => $student->load('class'),
+            'student' => $student->load(['class', 'academicYear', 'user']),
         ], 201);
     }
 
@@ -47,7 +53,7 @@ class StudentController extends Controller
     public function show(Student $student): JsonResponse
     {
         return response()->json([
-            'student' => $student->load('class'),
+            'student' => $student->load(['class', 'academicYear', 'user']),
         ]);
     }
 
@@ -57,17 +63,16 @@ class StudentController extends Controller
     public function update(Request $request, Student $student): JsonResponse
     {
         $validated = $request->validate([
-            'name' => 'sometimes|string|max:255',
-            'gender' => 'sometimes|in:Male,Female',
             'class_id' => 'nullable|exists:classes,id',
-            'photo' => 'nullable|string|max:255',
+            'academic_year_id' => 'nullable|exists:academic_years,id',
+            'enrollment_date' => 'nullable|date',
         ]);
 
         $student->update($validated);
 
         return response()->json([
             'message' => 'Student updated successfully',
-            'student' => $student->fresh()->load('class'),
+            'student' => $student->fresh()->load(['class', 'academicYear', 'user']),
         ]);
     }
 
@@ -98,7 +103,7 @@ class StudentController extends Controller
 
         return response()->json([
             'message' => 'Student assigned to class successfully',
-            'student' => $student->fresh()->load('class'),
+            'student' => $student->fresh()->load(['class', 'academicYear', 'user']),
         ]);
     }
 }

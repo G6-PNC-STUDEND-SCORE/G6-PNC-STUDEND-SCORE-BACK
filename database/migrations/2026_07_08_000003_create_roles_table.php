@@ -8,18 +8,18 @@ return new class extends Migration
 {
     public function up(): void
     {
-        Schema::create('students', function (Blueprint $table) {
+        Schema::create('roles', function (Blueprint $table) {
             $table->id();
-            $table->foreignId('class_id')->constrained('classes')->cascadeOnDelete();
-            $table->string('name');
-            $table->string('photo')->nullable();
-            $table->enum('gender', ['Male', 'Female']);
+            $table->string('name', 100)->unique();
+            $table->string('slug', 100)->unique();
+            $table->text('description')->nullable();
+            $table->boolean('is_active')->default(true);
             $table->timestamps();
         });
     }
 
     public function down(): void
     {
-        Schema::dropIfExists('students');
+        Schema::dropIfExists('roles');
     }
 };

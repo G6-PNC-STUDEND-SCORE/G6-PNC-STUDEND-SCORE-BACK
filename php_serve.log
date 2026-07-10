@@ -1,0 +1,14 @@
+Access is denied.
+39;49m Unable to respect the `PHP_CLI_SERVER_WORKERS` environment variable without the `--no-reload` flag. Only creating a single server.  
+
+  [37;44m INFO [39;49m Server running on [1m[http://127.0.0.1:8000][22m.  
+
+[33m  [39m[33;1mPress Ctrl+C to stop the server[39;22m
+
+
+  [37;44m INFO [39;49m Environment modified. Restarting server...  
+
+  [37;44m INFO [39;49m Server running on [1m[http://127.0.0.1:8000][22m.  
+
+[33m  [39m[33;1mPress Ctrl+C to stop the server[39;22m
+

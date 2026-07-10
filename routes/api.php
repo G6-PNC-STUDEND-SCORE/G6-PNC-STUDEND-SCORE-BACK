@@ -9,6 +9,7 @@ use App\Http\Controllers\Api\StudentController;
 use Illuminate\Support\Facades\Route;
 
 Route::post('/login', [AuthController::class, 'login']);
+Route::post('/google-login', [AuthController::class, 'googleLogin']);
 
 // Password reset
 Route::post('/forgot-password', [AuthController::class, 'forgotPassword']);
@@ -26,6 +27,14 @@ Route::middleware('auth:sanctum')->group(function () {
 
     // Class routes
     Route::get('/classes', [ClassController::class, 'index']);
+
+    // Student routes
+    Route::get('/students', [StudentController::class, 'index']);
+    Route::post('/students', [StudentController::class, 'store']);
+    Route::get('/students/{student}', [StudentController::class, 'show']);
+    Route::put('/students/{student}', [StudentController::class, 'update']);
+    Route::delete('/students/{student}', [StudentController::class, 'destroy']);
+    Route::post('/students/{student}/assign-class', [StudentController::class, 'assignClass']);
 
     // Subject routes
     Route::get('/subjects', [SubjectController::class, 'index']);
