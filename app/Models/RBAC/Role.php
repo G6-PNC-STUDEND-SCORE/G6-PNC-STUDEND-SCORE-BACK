@@ -5,6 +5,7 @@ namespace App\Models\RBAC;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Role extends Model
 {
@@ -22,29 +23,23 @@ class Role extends Model
         ];
     }
 
-    /**
-     * The permissions assigned to this role.
-     */
     public function permissions(): BelongsToMany
     {
-        return $this->belongsToMany(Permission::class, 'role_permission')
-            ->withTimestamps();
+        return $this->belongsToMany(Permission::class, 'role_permission');
     }
 
-    /**
-     * The users assigned to this role.
-     */
-    public function users(): BelongsToMany
+    public function users(): HasMany
     {
-        return $this->belongsToMany(User::class, 'role_user')
-            ->withTimestamps();
+        return $this->hasMany(User::class);
     }
 
-    /**
-     * Scope a query to only include active roles.
-     */
     public function scopeActive($query)
     {
         return $query->where('is_active', true);
+    }
+
+    public function hasPermission(string $slug): bool
+    {
+        return $this->permissions->contains('slug', $slug);
     }
 }

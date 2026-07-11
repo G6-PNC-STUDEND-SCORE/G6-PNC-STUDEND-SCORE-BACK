@@ -2,13 +2,13 @@
 
 namespace App\Providers;
 
-use App\Models\Classe;
+use App\Models\SchoolClass;
 use App\Models\Score;
 use App\Models\Student;
 use App\Models\Subject;
 use App\Models\Teacher;
 use App\Models\User;
-use App\Observers\ClasseObserver;
+use App\Observers\SchoolClassObserver;
 use App\Observers\ScoreObserver;
 use App\Observers\StudentObserver;
 use App\Observers\SubjectObserver;
@@ -40,7 +40,7 @@ class AppServiceProvider extends ServiceProvider
         // These observers will only create logs when the user is Admin or Teacher
         Student::observe(StudentObserver::class);
         Teacher::observe(TeacherObserver::class);
-        Classe::observe(ClasseObserver::class);
+        SchoolClass::observe(SchoolClassObserver::class);
         Subject::observe(SubjectObserver::class);
         Score::observe(ScoreObserver::class);
         User::observe(UserObserver::class);

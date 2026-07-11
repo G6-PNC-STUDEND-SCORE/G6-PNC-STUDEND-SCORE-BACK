@@ -10,23 +10,12 @@ class Teacher extends Model
 {
     protected $fillable = [
         'user_id',
-        'teacher_code',
         'department_id',
-        'position',
-        'hire_date',
-        'qualification',
-        'specialization',
-        'employment_type',
-        'salary_grade',
-        'office_location',
-        'notes',
     ];
 
     protected function casts(): array
     {
-        return [
-            'hire_date' => 'date',
-        ];
+        return [];
     }
 
     /**
@@ -50,6 +39,6 @@ class Teacher extends Model
      */
     public function classes(): HasMany
     {
-        return $this->hasMany(Classe::class);
+        return $this->hasMany(SchoolClass::class, 'teacher_id');
     }
 }

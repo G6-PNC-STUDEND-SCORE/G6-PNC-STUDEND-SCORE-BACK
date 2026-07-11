@@ -10,9 +10,11 @@ return new class extends Migration
     {
         Schema::create('student_number_sequences', function (Blueprint $table) {
             $table->id();
-            $table->year('intake_year')->unique();
-            $table->unsignedBigInteger('next_sequence')->default(1);
+            $table->year('intake_year')->comment('e.g. 2026, 2027');
+            $table->string('student_number', 20)->unique()->comment('e.g. PNC2026-001');
             $table->timestamps();
+
+            $table->index('intake_year');
         });
     }
 

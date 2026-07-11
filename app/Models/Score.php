@@ -4,17 +4,14 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Score extends Model
 {
     protected $fillable = [
         'student_id',
         'subject_id',
-        'academic_year_id',
-        'quiz',
-        'assignment',
-        'midterm',
-        'final',
+        'term_id',
         'total',
         'grade',
         'remarks',
@@ -23,35 +20,47 @@ class Score extends Model
     protected function casts(): array
     {
         return [
-            'quiz' => 'decimal:2',
-            'assignment' => 'decimal:2',
-            'midterm' => 'decimal:2',
-            'final' => 'decimal:2',
             'total' => 'decimal:2',
         ];
     }
 
-    /**
-     * The student this score belongs to.
-     */
     public function student(): BelongsTo
     {
         return $this->belongsTo(Student::class);
     }
 
-    /**
-     * The subject this score is for.
-     */
     public function subject(): BelongsTo
     {
         return $this->belongsTo(Subject::class);
     }
 
-    /**
-     * The academic year this score was recorded in.
-     */
-    public function academicYear(): BelongsTo
+    public function term(): BelongsTo
     {
-        return $this->belongsTo(AcademicYear::class);
+        return $this->belongsTo(Term::class);
+    }
+
+    public function details(): HasMany
+    {
+        return $this->hasMany(ScoreDetail::class);
+    }
+
+    public function quizzes(): HasMany
+    {
+        return $this->hasMany(ScoreDetail::class)->where('type', 'quiz');
+    }
+
+    public function assignments(): HasMany
+    {
+        return $this->hasMany(ScoreDetail::class)->where('type', 'assignment');
+    }
+
+    public function midterms(): HasMany
+    {
+        return $this->hasMany(ScoreDetail::class)->where('type', 'midterm');
+    }
+
+    public function finals(): HasMany
+    {
+        return $this->hasMany(ScoreDetail::class)->where('type', 'final');
     }
 }

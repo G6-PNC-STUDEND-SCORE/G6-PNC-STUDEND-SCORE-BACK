@@ -4,7 +4,6 @@ namespace App\Http\Middleware;
 
 use Closure;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Gate;
 use Symfony\Component\HttpFoundation\Response;
 
 /**
@@ -31,15 +30,15 @@ class CheckPermission
             return response()->json(['message' => 'Unauthenticated.'], 401);
         }
 
-        // Admin bypass — always allowed
-        if ($user->hasRole('admin')) {
+        // Admin always bypasses all permission checks
+        if ($user->isAdmin()) {
             return $next($request);
         }
 
-        // Check the Gate for this permission
-        if (!Gate::allows($permission)) {
+        // Load role with permissions and check
+        if (!$user->load('role.permissions')->hasPermission($permission)) {
             return response()->json([
-                'message' => 'Forbidden. You do not have the required permission: ' . $permission,
+                'message' => "Forbidden. Missing permission: {$permission}",
             ], 403);
         }
 

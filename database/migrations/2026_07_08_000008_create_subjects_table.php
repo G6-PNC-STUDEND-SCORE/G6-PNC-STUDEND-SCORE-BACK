@@ -10,12 +10,14 @@ return new class extends Migration
     {
         Schema::create('subjects', function (Blueprint $table) {
             $table->id();
-            $table->string('name', 100);
-            $table->string('code', 50)->unique();
-            $table->text('description')->nullable();
-            $table->integer('credit_hours')->default(0);
-            $table->boolean('is_active')->default(true);
+            $table->string('name');
+            $table->foreignId('teacher_id')->nullable()->constrained('teachers')->nullOnDelete();
+            $table->foreignId('class_id')->nullable()->constrained('classes')->nullOnDelete();
+            $table->enum('status', ['Active', 'Inactive'])->default('Active');
             $table->timestamps();
+
+            $table->index('teacher_id');
+            $table->index('class_id');
         });
     }
 

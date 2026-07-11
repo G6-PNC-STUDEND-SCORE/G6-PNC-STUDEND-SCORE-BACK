@@ -12,18 +12,14 @@ return new class extends Migration
             $table->id();
             $table->foreignId('student_id')->constrained('students')->cascadeOnDelete();
             $table->foreignId('subject_id')->constrained('subjects')->cascadeOnDelete();
-            $table->foreignId('academic_year_id')->nullable()->constrained('academic_years')->nullOnDelete();
-            $table->decimal('quiz', 5, 2)->default(0);
-            $table->decimal('assignment', 5, 2)->default(0);
-            $table->decimal('midterm', 5, 2)->default(0);
-            $table->decimal('final', 5, 2)->default(0);
-            $table->decimal('total', 5, 2)->default(0);
+            $table->foreignId('term_id')->constrained('terms')->cascadeOnDelete();
+            $table->decimal('total', 5, 2)->nullable();
             $table->string('grade', 10)->nullable();
             $table->text('remarks')->nullable();
             $table->timestamps();
 
-            $table->unique(['student_id', 'subject_id', 'academic_year_id'], 'score_unique');
-            $table->index('academic_year_id');
+            $table->unique(['student_id', 'subject_id', 'term_id'], 'score_unique');
+            $table->index('term_id');
         });
     }
 

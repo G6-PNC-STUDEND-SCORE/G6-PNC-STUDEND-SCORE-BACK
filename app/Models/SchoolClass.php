@@ -6,15 +6,14 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
-class Classe extends Model
+class SchoolClass extends Model
 {
     protected $table = 'classes';
 
     protected $fillable = [
         'name',
-        'code',
         'teacher_id',
-        'academic_year_id',
+        'generation_id',
         'description',
         'is_active',
     ];
@@ -27,26 +26,23 @@ class Classe extends Model
     }
 
     /**
-     * The teacher assigned to this class.
-     */
-    public function teacher(): BelongsTo
-    {
-        return $this->belongsTo(Teacher::class);
-    }
-
-    /**
-     * The academic year this class belongs to.
-     */
-    public function academicYear(): BelongsTo
-    {
-        return $this->belongsTo(AcademicYear::class);
-    }
-
-    /**
-     * The students in this class.
+     * Get the students for the class.
      */
     public function students(): HasMany
     {
-        return $this->hasMany(Student::class);
+        return $this->hasMany(Student::class, 'class_id');
+    }
+
+    /**
+     * Get the teacher that owns the class.
+     */
+    public function teacher(): BelongsTo
+    {
+        return $this->belongsTo(Teacher::class, 'teacher_id');
+    }
+
+    public function generation(): BelongsTo
+    {
+        return $this->belongsTo(Generation::class, 'generation_id');
     }
 }
