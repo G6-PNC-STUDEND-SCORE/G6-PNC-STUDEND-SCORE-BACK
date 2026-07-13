@@ -71,7 +71,7 @@ class SubjectController extends Controller
         }
 
         $subjectData = $request->all();
-$subjectData['code'] = $subjectData['code'] ?? ('SUB' . time()); // Generate default code if not provided
+        $subjectData['code'] = $subjectData['code'] ?? 'SUB' . time(); // Generate default code if not provided
         $subjectData['credit_hours'] = $subjectData['credit_hours'] ?? 3; // Default to 3 credit hours if not provided
         $subjectData['is_active'] = $subjectData['is_active'] ?? 'Active'; // Default to Active if not provided
 
