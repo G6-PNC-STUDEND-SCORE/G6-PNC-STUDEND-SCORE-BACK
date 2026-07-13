@@ -18,14 +18,13 @@ class ChartController extends Controller
             ->orderBy('grade')
             ->get();
 
-        // Ensure all grades A, B, C, D, F are present
         $allGrades = ['A', 'B', 'C', 'D', 'F'];
-        $gradeCounts = [];
         $gradeLabels = ['A' => 'A (90-100)', 'B' => 'B (80-89)', 'C' => 'C (70-79)', 'D' => 'D (60-69)', 'F' => 'F (0-59)'];
         $gradeColors = ['A' => '#22c55e', 'B' => '#3b82f6', 'C' => '#f59e0b', 'D' => '#f97316', 'F' => '#ef4444'];
 
         $gradeData = $grades->keyBy('grade');
 
+        $gradeCounts = [];
         foreach ($allGrades as $grade) {
             $gradeCounts[] = [
                 'grade' => $grade,
@@ -49,7 +48,9 @@ class ChartController extends Controller
     public function subjectPerformance(): JsonResponse
     {
         $subjects = DB::table('scores')
-            ->join('subjects', 'scores.subject_id', '=', 'subjects.id')
+            ->join('student_subject_enrollments', 'scores.student_subject_enrollment_id', '=', 'student_subject_enrollments.id')
+            ->join('subject_offerings', 'student_subject_enrollments.subject_offering_id', '=', 'subject_offerings.id')
+            ->join('subjects', 'subject_offerings.subject_id', '=', 'subjects.id')
             ->select(
                 'subjects.name as subject',
                 DB::raw('ROUND(AVG(scores.total), 2) as average_score'),
@@ -75,7 +76,6 @@ class ChartController extends Controller
 
         $averageScore = DB::table('scores')->avg('total');
 
-        // Pass/Fail counts (total >= 60 = pass, else fail)
         $passCount = DB::table('scores')->where('total', '>=', 60)->count();
         $failCount = DB::table('scores')->where('total', '<', 60)->count();
         $totalWithScores = $passCount + $failCount;
@@ -97,14 +97,10 @@ class ChartController extends Controller
         ]);
     }
 
-    /**
-     * Monthly trend data: average scores and pass rates grouped by month.
-     */
     public function trends(Request $request): JsonResponse
     {
         $year = $request->integer('year', now()->year);
 
-        // Get monthly stats from scores
         $monthlyStats = DB::table('scores')
             ->select(
                 DB::raw('MONTH(created_at) as month'),
@@ -120,7 +116,6 @@ class ChartController extends Controller
             ->get()
             ->keyBy('month');
 
-        // Build all 12 months
         $months = [];
         for ($m = 1; $m <= 12; $m++) {
             $stat = $monthlyStats->get($m);
@@ -144,9 +139,6 @@ class ChartController extends Controller
         ]);
     }
 
-    /**
-     * Recent activity logs for the dashboard feed.
-     */
     public function recentActivity(): JsonResponse
     {
         $logs = ActivityLog::with('user:id,name,email')

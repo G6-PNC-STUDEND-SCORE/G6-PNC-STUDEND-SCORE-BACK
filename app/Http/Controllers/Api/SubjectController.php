@@ -4,9 +4,11 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\Subject;
+use App\Models\SubjectOffering;
 use App\Models\Teacher;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Str;
 
 class SubjectController extends Controller
 {
@@ -14,13 +16,15 @@ class SubjectController extends Controller
     public function index(Request $request): JsonResponse
     {
         $user  = $request->user();
-        $query = Subject::with(['teacher.user', 'class']);
+        $query = Subject::with(['offerings.teacher.user', 'offerings.class', 'offerings.term']);
 
-        // Teacher only sees their own subjects
+        // Teacher only sees their own subjects (through offerings)
         if ($user->hasRole('teacher')) {
             $teacher = Teacher::where('user_id', $user->id)->first();
             if ($teacher) {
-                $query->where('teacher_id', $teacher->id);
+                $query->whereHas('offerings', function ($q) use ($teacher) {
+                    $q->where('teacher_id', $teacher->id);
+                });
             }
         }
 
@@ -43,7 +47,7 @@ class SubjectController extends Controller
     {
         return response()->json([
             'success' => true,
-            'data'    => $subject->load(['teacher.user', 'class']),
+            'data'    => $subject->load(['offerings.teacher.user', 'offerings.class']),
         ]);
     }
 
@@ -51,22 +55,26 @@ class SubjectController extends Controller
     public function store(Request $request): JsonResponse
     {
         $request->validate([
+            'subject_code' => 'nullable|string|max:50|unique:subjects,subject_code',
             'name'       => 'required|string|max:255',
-            'teacher_id' => 'nullable|exists:teachers,id',
-            'class_id'   => 'nullable|exists:classes,id',
+            'credits'    => 'nullable|integer|min:0|max:255',
+            'description'=> 'nullable|string',
+            'department_id' => 'nullable|integer|exists:departments,id',
             'status'     => 'in:Active,Inactive',
         ]);
 
         $subject = Subject::create([
+            'subject_code' => $request->subject_code ?: $this->generateSubjectCode($request->name),
             'name'       => $request->name,
-            'teacher_id' => $request->teacher_id,
-            'class_id'   => $request->class_id,
+            'credits'    => $request->credits,
+            'description'=> $request->description,
+            'department_id' => $request->department_id,
             'status'     => $request->status ?? 'Active',
         ]);
 
         return response()->json([
             'success' => true,
-            'data'    => $subject->load(['teacher.user', 'class']),
+            'data'    => $subject->load('offerings'),
             'message' => 'Subject created successfully',
         ], 201);
     }
@@ -75,17 +83,19 @@ class SubjectController extends Controller
     public function update(Request $request, Subject $subject): JsonResponse
     {
         $request->validate([
+            'subject_code' => 'sometimes|string|max:50|unique:subjects,subject_code,'.$subject->id,
             'name'       => 'sometimes|string|max:255',
-            'teacher_id' => 'nullable|exists:teachers,id',
-            'class_id'   => 'nullable|exists:classes,id',
+            'credits'    => 'nullable|integer|min:0|max:255',
+            'description'=> 'nullable|string',
+            'department_id' => 'nullable|integer|exists:departments,id',
             'status'     => 'in:Active,Inactive',
         ]);
 
-        $subject->update($request->only('name', 'teacher_id', 'class_id', 'status'));
+        $subject->update($request->only('subject_code', 'name', 'credits', 'description', 'department_id', 'status'));
 
         return response()->json([
             'success' => true,
-            'data'    => $subject->fresh()->load(['teacher.user', 'class']),
+            'data'    => $subject->fresh()->load('offerings'),
             'message' => 'Subject updated successfully',
         ]);
     }
@@ -114,5 +124,18 @@ class SubjectController extends Controller
             'success' => true,
             'data'    => $teachers,
         ]);
+    }
+
+    private function generateSubjectCode(string $name): string
+    {
+        $base = Str::upper(Str::substr(Str::slug($name, ''), 0, 12)) ?: 'SUBJECT';
+        $code = $base;
+        $suffix = 1;
+
+        while (Subject::where('subject_code', $code)->exists()) {
+            $code = $base.'-'.$suffix++;
+        }
+
+        return $code;
     }
 }

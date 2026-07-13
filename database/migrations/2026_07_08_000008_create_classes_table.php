@@ -15,6 +15,7 @@ return new class extends Migration
             $table->foreignId('generation_id')->nullable()->constrained('generations')->nullOnDelete();
             $table->text('description')->nullable();
             $table->boolean('is_active')->default(true);
+            $table->softDeletes();
             $table->timestamps();
 
             $table->index('teacher_id');

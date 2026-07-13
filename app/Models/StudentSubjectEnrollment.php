@@ -4,13 +4,13 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class StudentSubjectEnrollment extends Model
 {
     protected $fillable = [
         'student_id',
-        'subject_id',
-        'class_id',
+        'subject_offering_id',
         'status',
     ];
 
@@ -19,13 +19,13 @@ class StudentSubjectEnrollment extends Model
         return $this->belongsTo(Student::class);
     }
 
-    public function subject(): BelongsTo
+    public function subjectOffering(): BelongsTo
     {
-        return $this->belongsTo(Subject::class);
+        return $this->belongsTo(SubjectOffering::class);
     }
 
-    public function class(): BelongsTo
+    public function score(): HasOne
     {
-        return $this->belongsTo(SchoolClass::class, 'class_id');
+        return $this->hasOne(Score::class, 'student_subject_enrollment_id');
     }
 }

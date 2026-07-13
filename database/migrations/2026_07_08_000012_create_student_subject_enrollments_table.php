@@ -10,15 +10,15 @@ return new class extends Migration
     {
         Schema::create('student_subject_enrollments', function (Blueprint $table) {
             $table->id();
-            $table->foreignId('student_id')->constrained('students')->cascadeOnDelete();
-            $table->foreignId('subject_id')->constrained('subjects')->cascadeOnDelete();
-            $table->foreignId('class_id')->nullable()->constrained('classes')->nullOnDelete();
+$table->foreignId('student_id')->constrained('students')->restrictOnDelete();
+            $table->foreignId('subject_offering_id')->constrained('subject_offerings')->restrictOnDelete();
             $table->enum('status', ['enrolled', 'completed', 'dropped'])->default('enrolled');
             $table->timestamps();
 
-            $table->unique(['student_id', 'subject_id'], 'enrollment_unique');
+            $table->unique(['student_id', 'subject_offering_id'], 'enrollment_unique');
             $table->index('student_id');
-            $table->index('subject_id');
+            $table->index('subject_offering_id');
+            $table->index(['subject_offering_id', 'student_id'], 'enrollments_offering_student_idx');
         });
     }
 

@@ -5,14 +5,17 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasManyThrough;
+use Illuminate\Database\Eloquent\SoftDeletes;
 
 class Student extends Model
 {
+    use SoftDeletes;
+
     protected $fillable = [
         'user_id',
         'student_number_sequence_id',
         'generation_id',
-        'class_id',
     ];
 
     protected function casts(): array
@@ -20,14 +23,16 @@ class Student extends Model
         return [];
     }
 
+    public function getStudentNumberAttribute(): ?string
+    {
+        return $this->studentNumberSequence?->student_number;
+    }
+
     public function studentNumberSequence(): BelongsTo
     {
         return $this->belongsTo(StudentNumberSequence::class);
     }
 
-    /**
-     * The user account associated with this student.
-     */
     public function generation(): BelongsTo
     {
         return $this->belongsTo(Generation::class);
@@ -38,17 +43,14 @@ class Student extends Model
         return $this->belongsTo(User::class);
     }
 
-    /**
-     * The class this student belongs to.
-     */
-    public function class(): BelongsTo
+    public function scores(): HasManyThrough
     {
-        return $this->belongsTo(SchoolClass::class, 'class_id');
-    }
-
-    public function scores(): HasMany
-    {
-        return $this->hasMany(Score::class);
+        return $this->hasManyThrough(
+            Score::class,
+            StudentSubjectEnrollment::class,
+            'student_id',
+            'student_subject_enrollment_id'
+        );
     }
 
     public function enrollments(): HasMany
@@ -66,8 +68,8 @@ class Student extends Model
         return $this->hasMany(Transcript::class);
     }
 
-    public function scoresByTerm(int $termId): HasMany
+    public function classHistories(): HasMany
     {
-        return $this->hasMany(Score::class)->where('term_id', $termId);
+        return $this->hasMany(StudentClassHistory::class);
     }
 }

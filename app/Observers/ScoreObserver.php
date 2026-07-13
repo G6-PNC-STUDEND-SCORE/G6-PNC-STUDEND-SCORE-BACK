@@ -13,10 +13,11 @@ class ScoreObserver
 
     public function created(Score $score): void
     {
-        $student = $score->student;
-        $subject = $score->subject;
-        $studentLabel = $student?->student_number ?? "ID:{$score->student_id}";
-        $subjectLabel = $subject?->name ?? "ID:{$score->subject_id}";
+        $score->loadMissing('enrollment.student.studentNumberSequence', 'enrollment.subjectOffering.subject');
+        $student = $score->enrollment?->student;
+        $subject = $score->enrollment?->subjectOffering?->subject;
+        $studentLabel = $student?->student_number ?? "ID:{$score->student_subject_enrollment_id}";
+        $subjectLabel = $subject?->name ?? 'Unknown subject';
 
         $this->activityLogService->logCreate(
             null,
@@ -34,10 +35,11 @@ class ScoreObserver
             return;
         }
 
-        $student = $score->student;
-        $subject = $score->subject;
-        $studentLabel = $student?->student_number ?? "ID:{$score->student_id}";
-        $subjectLabel = $subject?->name ?? "ID:{$score->subject_id}";
+        $score->loadMissing('enrollment.student.studentNumberSequence', 'enrollment.subjectOffering.subject');
+        $student = $score->enrollment?->student;
+        $subject = $score->enrollment?->subjectOffering?->subject;
+        $studentLabel = $student?->student_number ?? "ID:{$score->student_subject_enrollment_id}";
+        $subjectLabel = $subject?->name ?? 'Unknown subject';
 
         $this->activityLogService->logUpdate(
             null,
@@ -51,10 +53,11 @@ class ScoreObserver
 
     public function deleted(Score $score): void
     {
-        $student = $score->student;
-        $subject = $score->subject;
-        $studentLabel = $student?->student_number ?? "ID:{$score->student_id}";
-        $subjectLabel = $subject?->name ?? "ID:{$score->subject_id}";
+        $score->loadMissing('enrollment.student.studentNumberSequence', 'enrollment.subjectOffering.subject');
+        $student = $score->enrollment?->student;
+        $subject = $score->enrollment?->subjectOffering?->subject;
+        $studentLabel = $student?->student_number ?? "ID:{$score->student_subject_enrollment_id}";
+        $subjectLabel = $subject?->name ?? 'Unknown subject';
 
         $this->activityLogService->logDelete(
             null,

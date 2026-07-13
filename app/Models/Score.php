@@ -9,9 +9,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 class Score extends Model
 {
     protected $fillable = [
-        'student_id',
-        'subject_id',
-        'term_id',
+        'student_subject_enrollment_id',
         'total',
         'grade',
         'remarks',
@@ -24,19 +22,9 @@ class Score extends Model
         ];
     }
 
-    public function student(): BelongsTo
+    public function enrollment(): BelongsTo
     {
-        return $this->belongsTo(Student::class);
-    }
-
-    public function subject(): BelongsTo
-    {
-        return $this->belongsTo(Subject::class);
-    }
-
-    public function term(): BelongsTo
-    {
-        return $this->belongsTo(Term::class);
+        return $this->belongsTo(StudentSubjectEnrollment::class, 'student_subject_enrollment_id');
     }
 
     public function details(): HasMany
@@ -46,21 +34,25 @@ class Score extends Model
 
     public function quizzes(): HasMany
     {
-        return $this->hasMany(ScoreDetail::class)->where('type', 'quiz');
+        return $this->hasMany(ScoreDetail::class)
+            ->whereHas('assessmentType', fn ($query) => $query->where('code', 'quiz'));
     }
 
     public function assignments(): HasMany
     {
-        return $this->hasMany(ScoreDetail::class)->where('type', 'assignment');
+        return $this->hasMany(ScoreDetail::class)
+            ->whereHas('assessmentType', fn ($query) => $query->where('code', 'assignment'));
     }
 
     public function midterms(): HasMany
     {
-        return $this->hasMany(ScoreDetail::class)->where('type', 'midterm');
+        return $this->hasMany(ScoreDetail::class)
+            ->whereHas('assessmentType', fn ($query) => $query->where('code', 'midterm'));
     }
 
     public function finals(): HasMany
     {
-        return $this->hasMany(ScoreDetail::class)->where('type', 'final');
+        return $this->hasMany(ScoreDetail::class)
+            ->whereHas('assessmentType', fn ($query) => $query->where('code', 'final'));
     }
 }

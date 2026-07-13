@@ -5,26 +5,30 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\Score;
 use App\Models\Student;
-use App\Models\StudentNumberSequence;
+use App\Models\StudentClassHistory;
+use App\Services\StudentNumberService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
 class StudentController extends Controller
 {
+    public function __construct(
+        private readonly StudentNumberService $studentNumberService
+    ) {}
+
     // GET /students — admin & teacher see all, student sees only themselves
     public function index(Request $request): JsonResponse
     {
         $user = $request->user();
 
+        $query = Student::with(['user', 'generation', 'studentNumberSequence', 'classHistories.class']);
+
         if ($user->hasRole('student')) {
-            $students = Student::with(['user', 'class', 'generation', 'studentNumberSequence'])
-                ->where('user_id', $user->id)
-                ->get();
-        } else {
-            $students = Student::with(['user', 'class', 'generation', 'studentNumberSequence'])
-                ->get();
+            $query->where('user_id', $user->id);
         }
+
+        $students = $query->get();
 
         return response()->json([
             'students' => $students,
@@ -41,7 +45,15 @@ class StudentController extends Controller
         }
 
         return response()->json([
-            'student' => $student->load(['user', 'class', 'generation', 'studentNumberSequence', 'scores.details', 'scores.subject', 'scores.term']),
+            'student' => $student->load([
+                'user',
+                'generation',
+                'studentNumberSequence',
+                'classHistories.class',
+                'enrollments.subjectOffering.subject',
+                'enrollments.subjectOffering.term',
+                'enrollments.score.details',
+            ]),
         ]);
     }
 
@@ -51,18 +63,12 @@ class StudentController extends Controller
         $request->validate([
             'user_id'       => 'required|exists:users,id|unique:students,user_id',
             'generation_id' => 'nullable|exists:generations,id',
-            'class_id'      => 'nullable|exists:classes,id',
         ]);
 
         DB::beginTransaction();
         try {
             $intakeYear = now()->year;
-            $nextSeq    = StudentNumberSequence::where('intake_year', $intakeYear)->count() + 1;
-
-            $sequence = StudentNumberSequence::create([
-                'intake_year'    => $intakeYear,
-                'student_number' => sprintf('PNC%d-%03d', $intakeYear, $nextSeq),
-            ]);
+            $sequence = $this->studentNumberService->createSequence($intakeYear);
 
             // Update the user's name, gender if provided
             $user = \App\Models\User::find($request->user_id);
@@ -83,12 +89,11 @@ class StudentController extends Controller
                 'user_id'                    => $request->user_id,
                 'student_number_sequence_id' => $sequence->id,
                 'generation_id'              => $request->generation_id,
-                'class_id'                   => $request->class_id,
             ]);
 
             DB::commit();
             return response()->json([
-                'student' => $student->load(['user', 'class', 'generation', 'studentNumberSequence']),
+                'student' => $student->load(['user', 'generation', 'studentNumberSequence']),
             ], 201);
         } catch (\Exception $e) {
             DB::rollBack();
@@ -101,13 +106,12 @@ class StudentController extends Controller
     {
         $request->validate([
             'generation_id' => 'nullable|exists:generations,id',
-            'class_id'      => 'nullable|exists:classes,id',
             'name'          => 'nullable|string|max:255',
             'gender'        => 'nullable|in:Male,Female,Other',
             'status'        => 'nullable|in:active,inactive,suspended',
         ]);
 
-        $student->update($request->only('generation_id', 'class_id'));
+        $student->update($request->only('generation_id'));
 
         // Update the user's name, gender, status if provided
         $userData = [];
@@ -125,7 +129,7 @@ class StudentController extends Controller
         }
 
         return response()->json([
-            'student' => $student->fresh()->load(['user', 'class', 'generation', 'studentNumberSequence']),
+            'student' => $student->fresh()->load(['user', 'generation', 'studentNumberSequence']),
         ]);
     }
 
@@ -136,19 +140,30 @@ class StudentController extends Controller
         return response()->json(['message' => 'Student deleted successfully.']);
     }
 
-    // PUT /students/{student}/assign-class — assign a class to a student
+    // PUT /students/{student}/assign-class — using student_class_histories
     public function assignClass(Request $request, Student $student): JsonResponse
     {
         $request->validate([
             'class_id' => 'required|exists:classes,id',
-        ]);
+        ]);            // Deactivate any active class history
+        StudentClassHistory::where('student_id', $student->id)
+            ->where('status', 'active')
+            ->update(['status' => 'transferred', 'end_date' => now()]);
 
-        $student->update([
-            'class_id' => $request->class_id,
+        $class = \App\Models\SchoolClass::find($request->class_id);
+        $generationId = $class?->generation_id ?? $student->generation_id;
+
+        // Create new active class history
+        StudentClassHistory::create([
+            'student_id'    => $student->id,
+            'class_id'      => $request->class_id,
+            'generation_id' => $generationId,
+            'start_date'    => now(),
+            'status'        => 'active',
         ]);
 
         return response()->json([
-            'student' => $student->fresh()->load(['user', 'class', 'generation', 'studentNumberSequence']),
+            'student' => $student->fresh()->load(['user', 'generation', 'studentNumberSequence', 'classHistories.class']),
         ]);
     }
 
@@ -161,8 +176,10 @@ class StudentController extends Controller
             return response()->json(['message' => 'Forbidden.'], 403);
         }
 
-        $scores = Score::with(['details', 'subject', 'term'])
-            ->where('student_id', $student->id)
+        $scores = Score::with(['details', 'enrollment.subjectOffering.subject', 'enrollment.subjectOffering.term'])
+            ->whereHas('enrollment', function ($q) use ($student) {
+                $q->where('student_id', $student->id);
+            })
             ->get();
 
         return response()->json($scores);

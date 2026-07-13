@@ -3,27 +3,30 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\AssessmentType;
 use App\Models\Score;
 use App\Models\ScoreDetail;
+use App\Models\StudentSubjectEnrollment;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
 class ScoreController extends Controller
 {
-    // GET /scores?student_id=&subject_id=&term_id=
+    // GET /scores?student_id=&subject_offering_id=
     public function index(Request $request): JsonResponse
     {
-        $query = Score::with(['details', 'student.user', 'subject', 'term']);
+        $query = Score::with(['details.assessmentType', 'enrollment.student.user', 'enrollment.subjectOffering.subject', 'enrollment.subjectOffering.term']);
 
         if ($request->student_id) {
-            $query->where('student_id', $request->student_id);
+            $query->whereHas('enrollment', function ($q) use ($request) {
+                $q->where('student_id', $request->student_id);
+            });
         }
-        if ($request->subject_id) {
-            $query->where('subject_id', $request->subject_id);
-        }
-        if ($request->term_id) {
-            $query->where('term_id', $request->term_id);
+        if ($request->subject_offering_id) {
+            $query->whereHas('enrollment', function ($q) use ($request) {
+                $q->where('subject_offering_id', $request->subject_offering_id);
+            });
         }
 
         return response()->json([
@@ -37,42 +40,41 @@ class ScoreController extends Controller
     {
         return response()->json([
             'success' => true,
-            'data' => $score->load(['details', 'student.user', 'subject', 'term']),
+            'data' => $score->load(['details.assessmentType', 'enrollment.student.user', 'enrollment.subjectOffering.subject', 'enrollment.subjectOffering.term']),
         ]);
     }
 
     // POST /scores
-    // Create a score record for student+subject+term, with initial details
-    // Body: { student_id, subject_id, term_id, remarks, details: [{type, label, mark}] }
+    // Body: { student_subject_enrollment_id, remarks, details: [{type, label, mark, max_score, order_number}] }
     public function store(Request $request): JsonResponse
     {
         $request->validate([
-            'student_id'        => 'required|exists:students,id',
-            'subject_id'        => 'required|exists:subjects,id',
-            'term_id'           => 'required|exists:terms,id',
+            'student_subject_enrollment_id' => 'required|exists:student_subject_enrollments,id|unique:scores,student_subject_enrollment_id',
             'remarks'           => 'nullable|string',
             'details'           => 'nullable|array',
             'details.*.type'    => 'required_with:details|in:quiz,assignment,midterm,final',
             'details.*.label'   => 'required_with:details|string|max:50',
-            'details.*.mark'    => 'nullable|numeric|min:0|max:100',
+            'details.*.mark'    => 'nullable|numeric|min:0',
+            'details.*.max_score' => 'nullable|integer|min:1',
+            'details.*.order_number' => 'nullable|integer',
         ]);
 
         DB::beginTransaction();
         try {
             $score = Score::create([
-                'student_id' => $request->student_id,
-                'subject_id' => $request->subject_id,
-                'term_id'    => $request->term_id,
-                'remarks'    => $request->remarks,
+                'student_subject_enrollment_id' => $request->student_subject_enrollment_id,
+                'remarks'       => $request->remarks,
             ]);
 
             if ($request->details) {
                 foreach ($request->details as $detail) {
                     ScoreDetail::create([
-                        'score_id' => $score->id,
-                        'type'     => $detail['type'],
-                        'label'    => $detail['label'],
-                        'mark'     => $detail['mark'] ?? null,
+                        'score_id'      => $score->id,
+                        'assessment_type_id' => $this->assessmentTypeId($detail['type']),
+                        'label'         => $detail['label'],
+                        'mark'          => $detail['mark'] ?? null,
+                        'max_score'     => $detail['max_score'] ?? null,
+                        'order_number'  => $detail['order_number'] ?? null,
                     ]);
                 }
             }
@@ -82,7 +84,7 @@ class ScoreController extends Controller
 
             return response()->json([
                 'success' => true,
-                'data' => $score->load('details'),
+                'data' => $score->load(['details.assessmentType', 'enrollment.subjectOffering.subject', 'enrollment.subjectOffering.term']),
             ], 201);
         } catch (\Exception $e) {
             DB::rollBack();
@@ -91,32 +93,35 @@ class ScoreController extends Controller
     }
 
     // POST /scores/{score}/details — add a new quiz (or any detail) to existing score
-    // Body: { type, label, mark }
+    // Body: { type, label, mark, max_score, order_number }
     public function addDetail(Request $request, Score $score): JsonResponse
     {
         $request->validate([
-            'type'  => 'required|in:quiz,assignment,midterm,final',
-            'label' => 'required|string|max:50',
-            'mark'  => 'nullable|numeric|min:0|max:100',
+            'type'        => 'required|in:quiz,assignment,midterm,final',
+            'label'       => 'required|string|max:50',
+            'mark'        => 'nullable|numeric|min:0',
+            'max_score'   => 'nullable|integer|min:1',
+            'order_number'=> 'nullable|integer',
         ]);
 
         $detail = ScoreDetail::create([
-            'score_id' => $score->id,
-            'type'     => $request->type,
-            'label'    => $request->label,
-            'mark'     => $request->mark ?? null,
+            'score_id'      => $score->id,
+            'assessment_type_id' => $this->assessmentTypeId($request->type),
+            'label'         => $request->label,
+            'mark'          => $request->mark ?? null,
+            'max_score'     => $request->max_score ?? null,
+            'order_number'  => $request->order_number ?? null,
         ]);
 
         $this->recalculateTotal($score);
 
         return response()->json([
             'success' => true,
-            'data' => $score->load('details'),
+            'data' => $score->load(['details.assessmentType', 'enrollment.subjectOffering.subject', 'enrollment.subjectOffering.term']),
         ], 201);
     }
 
     // PUT /scores/{score}/details/{detail} — update a specific detail (e.g. enter quiz mark)
-    // Body: { mark } or { label, mark }
     public function updateDetail(Request $request, Score $score, ScoreDetail $detail): JsonResponse
     {
         if ($detail->score_id !== $score->id) {
@@ -124,16 +129,18 @@ class ScoreController extends Controller
         }
 
         $request->validate([
-            'label' => 'sometimes|string|max:50',
-            'mark'  => 'nullable|numeric|min:0|max:100',
+            'label'       => 'sometimes|string|max:50',
+            'mark'        => 'nullable|numeric|min:0',
+            'max_score'   => 'nullable|integer|min:1',
+            'order_number'=> 'nullable|integer',
         ]);
 
-        $detail->update($request->only('label', 'mark'));
+        $detail->update($request->only('label', 'mark', 'max_score', 'order_number'));
         $this->recalculateTotal($score);
 
         return response()->json([
             'success' => true,
-            'data' => $score->load('details'),
+            'data' => $score->load(['details.assessmentType', 'enrollment.subjectOffering.subject', 'enrollment.subjectOffering.term']),
         ]);
     }
 
@@ -149,7 +156,7 @@ class ScoreController extends Controller
 
         return response()->json([
             'success' => true,
-            'data' => $score->load('details'),
+            'data' => $score->load(['details.assessmentType', 'enrollment.subjectOffering.subject', 'enrollment.subjectOffering.term']),
         ]);
     }
 
@@ -162,28 +169,28 @@ class ScoreController extends Controller
 
     // Recalculate total using formula:
     // Quiz avg × 20% + Assignment avg × 10% + Midterm × 30% + Final × 40%
+    // Uses weighted percentage calculation when max_score is provided
     private function recalculateTotal(Score $score): void
     {
-        $details = ScoreDetail::where('score_id', $score->id)->whereNotNull('mark')->get();
+        $details = ScoreDetail::with('assessmentType')
+            ->where('score_id', $score->id)
+            ->whereNotNull('mark')
+            ->get();
 
         if ($details->isEmpty()) {
             $score->update(['total' => null, 'grade' => null]);
             return;
         }
 
-        $quizAvg       = $details->where('type', 'quiz')->avg('mark');
-        $assignmentAvg = $details->where('type', 'assignment')->avg('mark');
-        $midterm       = $details->where('type', 'midterm')->avg('mark');
-        $final         = $details->where('type', 'final')->avg('mark');
+        $total = round($details
+            ->groupBy(fn ($detail) => $detail->assessmentType?->code ?? 'unknown')
+            ->sum(function ($group) {
+                $assessmentType = $group->first()->assessmentType;
+                if (!$assessmentType) return 0;
 
-        // Only calculate total if at least one component exists
-        $total = round(
-            (($quizAvg ?? 0) * 0.20) +
-            (($assignmentAvg ?? 0) * 0.10) +
-            (($midterm ?? 0) * 0.30) +
-            (($final ?? 0) * 0.40),
-            2
-        );
+                $average = $this->calculateSimpleAverage($group);
+                return (($average ?? 0) * ((float) $assessmentType->weight_percent / 100));
+            }), 2);
 
         $grade = match (true) {
             $total >= 90 => 'A',
@@ -194,5 +201,54 @@ class ScoreController extends Controller
         };
 
         $score->update(['total' => $total, 'grade' => $grade]);
+    }
+
+    private function calculateSimpleAverage($details): ?float
+    {
+        $details = $details->filter(fn($d) => $d->mark !== null);
+
+        if ($details->isEmpty()) {
+            return null;
+        }
+
+        $totalMarks = $details->sum('mark');
+        $totalMaxScores = $details->filter(fn($d) => $d->max_score)->sum('max_score');
+
+        if ($totalMaxScores > 0) {
+            return ($totalMarks / $totalMaxScores) * 100;
+        }
+
+        return $details->avg('mark');
+    }
+
+    private function assessmentTypeId(string $code): int
+    {
+        return AssessmentType::firstOrCreate(
+            ['code' => $code],
+            [
+                'name' => ucfirst($code),
+                'weight_percent' => match ($code) {
+                    'quiz' => 20,
+                    'assignment' => 10,
+                    'midterm' => 30,
+                    'final' => 40,
+                    default => 0,
+                },
+                'is_active' => true,
+            ]
+        )->id;
+    }
+
+    // GET /scores/by-enrollment/{enrollment}
+    public function byEnrollment(StudentSubjectEnrollment $enrollment): JsonResponse
+    {
+        $score = Score::with(['details.assessmentType'])
+            ->where('student_subject_enrollment_id', $enrollment->id)
+            ->first();
+
+        return response()->json([
+            'success' => true,
+            'data' => $score,
+        ]);
     }
 }

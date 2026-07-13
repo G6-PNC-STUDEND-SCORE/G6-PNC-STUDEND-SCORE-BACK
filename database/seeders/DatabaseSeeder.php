@@ -16,6 +16,7 @@ class DatabaseSeeder extends Seeder
             PermissionSeeder::class,
             TeacherSeeder::class,
             SubjectSeeder::class,
+            AssessmentTypeSeeder::class,
             StudentSeeder::class,
         ]);
     }

@@ -3,6 +3,7 @@
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\ChartController;
 use App\Http\Controllers\Api\ClassController;
+use App\Http\Controllers\Api\DashboardController;
 use App\Http\Controllers\Api\ProfileController;
 use App\Http\Controllers\Api\PermissionController;
 use App\Http\Controllers\Api\ScoreController;
@@ -21,6 +22,9 @@ Route::get('/chart/subject-performance', [ChartController::class, 'subjectPerfor
 Route::get('/chart/summary', [ChartController::class, 'summary']);
 Route::get('/chart/trends', [ChartController::class, 'trends']);
 Route::get('/chart/recent-activity', [ChartController::class, 'recentActivity']);
+
+Route::get('/dashboard', [DashboardController::class, 'index'])->middleware('auth:sanctum');
+Route::get('/dashboard/filters', [DashboardController::class, 'filters'])->middleware('auth:sanctum');
 
 Route::middleware('auth:sanctum')->group(function () {
 

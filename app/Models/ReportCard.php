@@ -9,6 +9,7 @@ class ReportCard extends Model
 {
     protected $fillable = [
         'student_id',
+        'generation_id',
         'term_id',
         'total_average',
         'rank_in_class',
@@ -30,6 +31,11 @@ class ReportCard extends Model
     public function student(): BelongsTo
     {
         return $this->belongsTo(Student::class);
+    }
+
+    public function generation(): BelongsTo
+    {
+        return $this->belongsTo(Generation::class);
     }
 
     public function term(): BelongsTo

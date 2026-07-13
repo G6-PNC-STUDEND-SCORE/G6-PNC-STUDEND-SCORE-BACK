@@ -9,8 +9,8 @@ return new class extends Migration
     public function up(): void
     {
         Schema::create('transcripts', function (Blueprint $table) {
-            $table->id();
-            $table->foreignId('student_id')->constrained('students')->cascadeOnDelete();
+$table->id();
+            $table->foreignId('student_id')->constrained('students')->restrictOnDelete();
             $table->foreignId('generation_id')->nullable()->constrained('generations')->nullOnDelete();
             $table->decimal('overall_average', 5, 2)->nullable()->comment('Average across all terms and subjects');
             $table->string('overall_grade', 10)->nullable();
@@ -21,6 +21,8 @@ return new class extends Migration
 
             $table->index('student_id');
             $table->index('generation_id');
+            $table->index('generated_at', 'transcripts_generated_at_idx');
+            $table->index(['generation_id', 'generated_at'], 'transcripts_dashboard_recent_idx');
         });
     }
 

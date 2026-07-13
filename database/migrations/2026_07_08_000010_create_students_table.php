@@ -11,13 +11,11 @@ return new class extends Migration
         Schema::create('students', function (Blueprint $table) {
             $table->id();
             $table->foreignId('user_id')->unique()->constrained('users')->cascadeOnDelete();
-
             $table->foreignId('student_number_sequence_id')->nullable()->constrained('student_number_sequences')->nullOnDelete();
             $table->foreignId('generation_id')->nullable()->constrained('generations')->nullOnDelete();
-            $table->foreignId('class_id')->nullable()->constrained('classes')->nullOnDelete();
+            $table->softDeletes();
             $table->timestamps();
 
-            $table->index('class_id');
             $table->index('student_number_sequence_id');
             $table->index('generation_id');
         });

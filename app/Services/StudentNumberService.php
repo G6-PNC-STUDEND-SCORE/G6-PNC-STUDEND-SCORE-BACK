@@ -35,8 +35,9 @@ class StudentNumberService
      */
     public function generateNext(int $intakeYear): array
     {
-        // Reserve the next sequence number atomically
-        $sequenceNumber = StudentNumberSequence::reserveNext((string) $intakeYear);
+        $sequenceNumber = StudentNumberSequence::where('intake_year', $intakeYear)
+            ->lockForUpdate()
+            ->count() + 1;
 
         // Format: PNC2026-001
         $studentNumber = sprintf(
@@ -51,6 +52,16 @@ class StudentNumberService
             'intake_year' => $intakeYear,
             'sequence_number' => $sequenceNumber,
         ];
+    }
+
+    public function createSequence(int $intakeYear): StudentNumberSequence
+    {
+        $numberData = $this->generateNext($intakeYear);
+
+        return StudentNumberSequence::create([
+            'intake_year' => $numberData['intake_year'],
+            'student_number' => $numberData['student_number'],
+        ]);
     }
 
     /**

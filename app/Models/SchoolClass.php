@@ -5,9 +5,12 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\SoftDeletes;
 
 class SchoolClass extends Model
 {
+    use SoftDeletes;
+
     protected $table = 'classes';
 
     protected $fillable = [
@@ -25,17 +28,6 @@ class SchoolClass extends Model
         ];
     }
 
-    /**
-     * Get the students for the class.
-     */
-    public function students(): HasMany
-    {
-        return $this->hasMany(Student::class, 'class_id');
-    }
-
-    /**
-     * Get the teacher that owns the class.
-     */
     public function teacher(): BelongsTo
     {
         return $this->belongsTo(Teacher::class, 'teacher_id');

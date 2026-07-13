@@ -4,17 +4,19 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
-use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\SoftDeletes;
 
 class Subject extends Model
 {
-    use HasFactory;
+    use HasFactory, SoftDeletes;
 
     protected $fillable = [
+        'subject_code',
         'name',
-        'teacher_id',
-        'class_id',
+        'credits',
+        'description',
+        'department_id',
         'status',
     ];
 
@@ -25,27 +27,8 @@ class Subject extends Model
         ];
     }
 
-    /**
-     * The teacher assigned to this subject.
-     */
-    public function teacher(): BelongsTo
+    public function offerings(): HasMany
     {
-        return $this->belongsTo(Teacher::class, 'teacher_id');
-    }
-
-    /**
-     * The class this subject is taught in.
-     */
-    public function class(): BelongsTo
-    {
-        return $this->belongsTo(SchoolClass::class, 'class_id');
-    }
-
-    /**
-     * The scores recorded for this subject.
-     */
-    public function scores(): HasMany
-    {
-        return $this->hasMany(Score::class);
+        return $this->hasMany(SubjectOffering::class);
     }
 }

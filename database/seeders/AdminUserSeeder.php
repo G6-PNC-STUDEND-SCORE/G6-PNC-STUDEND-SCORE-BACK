@@ -40,14 +40,11 @@ class AdminUserSeeder extends Seeder
         );
 
         // Create admin user
-        $admin = User::create([
+        User::updateOrCreate(['email' => 'admin@gmail.com'], [
             'name' => 'Admin',
-            'email' => 'admin@gmail.com',
             'password' => Hash::make('12345678'),
+            'role_id' => $adminRole->id,
             'status' => 'active',
         ]);
-
-        // Assign admin role via pivot table
-        $admin->roles()->attach($adminRole->id);
     }
 }

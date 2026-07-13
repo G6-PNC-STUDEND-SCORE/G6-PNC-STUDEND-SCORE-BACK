@@ -9,17 +9,17 @@ return new class extends Migration
     public function up(): void
     {
         Schema::create('scores', function (Blueprint $table) {
-            $table->id();
-            $table->foreignId('student_id')->constrained('students')->cascadeOnDelete();
-            $table->foreignId('subject_id')->constrained('subjects')->cascadeOnDelete();
-            $table->foreignId('term_id')->constrained('terms')->cascadeOnDelete();
+$table->id();
+            $table->foreignId('student_subject_enrollment_id')->unique()->constrained('student_subject_enrollments')->restrictOnDelete();
             $table->decimal('total', 5, 2)->nullable();
             $table->string('grade', 10)->nullable();
             $table->text('remarks')->nullable();
             $table->timestamps();
 
-            $table->unique(['student_id', 'subject_id', 'term_id'], 'score_unique');
-            $table->index('term_id');
+            $table->index('student_subject_enrollment_id');
+            $table->index('total', 'scores_total_idx');
+            $table->index('grade', 'scores_grade_idx');
+            $table->index('created_at', 'scores_created_at_idx');
         });
     }
 
