@@ -84,3 +84,4 @@ class ChartController extends Controller
         ]);
     }
 }
+
