@@ -8,16 +8,18 @@ return new class extends Migration
 {
     public function up(): void
     {
-        Schema::create('subjects', function (Blueprint $table) {
+Schema::create('subjects', function (Blueprint $table) {
             $table->id();
+            $table->string('subject_code', 50)->unique();
             $table->string('name');
-            $table->string('code')->unique();
-            $table->string('teacher');
-            $table->string('class');
-            $table->integer('credits');
+            $table->unsignedSmallInteger('credits')->nullable()->comment('Academic credits/units');
+            $table->text('description')->nullable();
+            $table->foreignId('department_id')->nullable()->constrained('departments')->nullOnDelete();
             $table->enum('status', ['Active', 'Inactive'])->default('Active');
-            $table->string('image')->nullable();
+            $table->softDeletes();
             $table->timestamps();
+
+            $table->index('department_id');
         });
     }
 

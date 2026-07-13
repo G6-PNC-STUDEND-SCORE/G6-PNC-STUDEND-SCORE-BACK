@@ -4,22 +4,31 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\SoftDeletes;
 
 class Subject extends Model
 {
-    use HasFactory;
+    use HasFactory, SoftDeletes;
 
     protected $fillable = [
+        'subject_code',
         'name',
-        'code',
-        'teacher',
-        'class',
         'credits',
+        'description',
+        'department_id',
         'status',
-        'image',
     ];
 
-    protected $casts = [
-        'credits' => 'integer',
-    ];
+    protected function casts(): array
+    {
+        return [
+            'status' => 'string',
+        ];
+    }
+
+    public function offerings(): HasMany
+    {
+        return $this->hasMany(SubjectOffering::class);
+    }
 }

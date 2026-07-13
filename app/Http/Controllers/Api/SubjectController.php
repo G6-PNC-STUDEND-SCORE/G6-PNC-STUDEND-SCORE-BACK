@@ -4,147 +4,138 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\Subject;
+use App\Models\SubjectOffering;
+use App\Models\Teacher;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\Str;
 
 class SubjectController extends Controller
 {
-    public function index(Request $request)
+    // GET /subjects — all authenticated users
+    public function index(Request $request): JsonResponse
     {
-        $query = Subject::query();
+        $user  = $request->user();
+        $query = Subject::with(['offerings.teacher.user', 'offerings.class', 'offerings.term']);
 
-        // Search functionality
-        if ($request->has('search')) {
-            $search = $request->search;
-            $query->where(function ($q) use ($search) {
-                $q->where('name', 'like', "%{$search}%")
-                  ->orWhere('code', 'like', "%{$search}%")
-                  ->orWhere('teacher', 'like', "%{$search}%")
-                  ->orWhere('class', 'like', "%{$search}%");
-            });
+        // Teacher only sees their own subjects (through offerings)
+        if ($user->hasRole('teacher')) {
+            $teacher = Teacher::where('user_id', $user->id)->first();
+            if ($teacher) {
+                $query->whereHas('offerings', function ($q) use ($teacher) {
+                    $q->where('teacher_id', $teacher->id);
+                });
+            }
         }
 
-        // Filter by status
-        if ($request->has('status')) {
+        if ($request->search) {
+            $query->where('name', 'like', "%{$request->search}%");
+        }
+
+        if ($request->status) {
             $query->where('status', $request->status);
         }
 
-        $subjects = $query->get();
-
         return response()->json([
             'success' => true,
-            'data' => $subjects
+            'data'    => $query->get(),
         ]);
     }
 
-    public function store(Request $request)
+    // GET /subjects/{subject} — all authenticated users
+    public function show(Subject $subject): JsonResponse
     {
-        $validator = Validator::make($request->all(), [
-            'name' => 'required|string|max:255',
-            'teacher' => 'nullable|string|max:255',
-            'class' => 'required|string|max:50',
-            'status' => 'required|in:Active,Inactive',
-            'image' => 'nullable|string|max:255',
+        return response()->json([
+            'success' => true,
+            'data'    => $subject->load(['offerings.teacher.user', 'offerings.class']),
+        ]);
+    }
+
+    // POST /subjects — admin only
+    public function store(Request $request): JsonResponse
+    {
+        $request->validate([
+            'subject_code' => 'nullable|string|max:50|unique:subjects,subject_code',
+            'name'       => 'required|string|max:255',
+            'credits'    => 'nullable|integer|min:0|max:255',
+            'description'=> 'nullable|string',
+            'department_id' => 'nullable|integer|exists:departments,id',
+            'status'     => 'in:Active,Inactive',
         ]);
 
-        if ($validator->fails()) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Validation error',
-                'errors' => $validator->errors()
-            ], 422);
-        }
-
-        $subjectData = $request->all();
-        $subjectData['code'] = $subjectData['code'] ?? 'SUB' . time(); // Generate default code if not provided
-        $subjectData['credits'] = $subjectData['credits'] ?? 3; // Default to 3 credits if not provided
-
-        // Set default value for teacher if empty
-        if (empty($subjectData['teacher'])) {
-            $subjectData['teacher'] = 'N/A';
-        }
-
-        $subject = Subject::create($subjectData);
+        $subject = Subject::create([
+            'subject_code' => $request->subject_code ?: $this->generateSubjectCode($request->name),
+            'name'       => $request->name,
+            'credits'    => $request->credits,
+            'description'=> $request->description,
+            'department_id' => $request->department_id,
+            'status'     => $request->status ?? 'Active',
+        ]);
 
         return response()->json([
             'success' => true,
+            'data'    => $subject->load('offerings'),
             'message' => 'Subject created successfully',
-            'data' => $subject
         ], 201);
     }
 
-    public function show($id)
+    // PUT /subjects/{subject} — admin only
+    public function update(Request $request, Subject $subject): JsonResponse
     {
-        $subject = Subject::findOrFail($id);
+        $request->validate([
+            'subject_code' => 'sometimes|string|max:50|unique:subjects,subject_code,'.$subject->id,
+            'name'       => 'sometimes|string|max:255',
+            'credits'    => 'nullable|integer|min:0|max:255',
+            'description'=> 'nullable|string',
+            'department_id' => 'nullable|integer|exists:departments,id',
+            'status'     => 'in:Active,Inactive',
+        ]);
+
+        $subject->update($request->only('subject_code', 'name', 'credits', 'description', 'department_id', 'status'));
 
         return response()->json([
             'success' => true,
-            'data' => $subject
-        ]);
-    }
-
-    public function update(Request $request, $id)
-    {
-        $subject = Subject::findOrFail($id);
-
-        $validator = Validator::make($request->all(), [
-            'name' => 'required|string|max:255',
-            'code' => 'nullable|string|max:50|unique:subjects,code,' . $id,
-            'teacher' => 'nullable|string|max:255',
-            'class' => 'required|string|max:50',
-            'credits' => 'nullable|integer|min:1|max:10',
-            'status' => 'required|in:Active,Inactive',
-            'image' => 'nullable|string|max:255',
-        ]);
-
-        if ($validator->fails()) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Validation error',
-                'errors' => $validator->errors()
-            ], 422);
-        }
-
-        $subjectData = $request->all();
-
-        // Set default value for teacher if empty
-        if (empty($subjectData['teacher'])) {
-            $subjectData['teacher'] = 'N/A';
-        }
-
-        $subject->update($subjectData);
-
-        return response()->json([
-            'success' => true,
+            'data'    => $subject->fresh()->load('offerings'),
             'message' => 'Subject updated successfully',
-            'data' => $subject
         ]);
     }
 
-    public function destroy($id)
+    // DELETE /subjects/{subject} — admin only
+    public function destroy(Subject $subject): JsonResponse
     {
-        $subject = Subject::findOrFail($id);
         $subject->delete();
-
         return response()->json([
             'success' => true,
-            'message' => 'Subject deleted successfully'
+            'message' => 'Subject deleted successfully',
         ]);
     }
 
-    public function teachers()
+    // GET /teachers — admin & teacher
+    public function teachers(): JsonResponse
     {
-        // Get distinct teacher names from subjects table
-        $teachers = Subject::select('teacher')
-            ->whereNotNull('teacher')
-            ->where('teacher', '!=', '')
-            ->distinct()
-            ->orderBy('teacher')
-            ->pluck('teacher');
+        $teachers = Teacher::with('user', 'department')->get()
+            ->map(fn($t) => [
+                'id'   => $t->id,
+                'name' => $t->user->name,
+            ])
+            ->values();
 
         return response()->json([
             'success' => true,
-            'data' => $teachers
+            'data'    => $teachers,
         ]);
+    }
+
+    private function generateSubjectCode(string $name): string
+    {
+        $base = Str::upper(Str::substr(Str::slug($name, ''), 0, 12)) ?: 'SUBJECT';
+        $code = $base;
+        $suffix = 1;
+
+        while (Subject::where('subject_code', $code)->exists()) {
+            $code = $base.'-'.$suffix++;
+        }
+
+        return $code;
     }
 }

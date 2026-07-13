@@ -9,20 +9,23 @@ class SubjectSeeder extends Seeder
 {
     public function run(): void
     {
-        $subjects = [
-            ['name' => 'Mathematics'],
-            ['name' => 'English Language'],
-            ['name' => 'Science'],
-            ['name' => 'History'],
-            ['name' => 'Geography'],
-            ['name' => 'Physics'],
-            ['name' => 'Chemistry'],
-            ['name' => 'Biology'],
+        $subjectNames = [
+            'Logic', 'Typing', 'Algorithms', 'OOP',
+            'English', 'Design', 'Data Analysis',
+            'PL', 'Vue.js', 'PHP', 'Laravel', 'Node.js',
         ];
 
-        foreach ($subjects as $subject) {
+        foreach ($subjectNames as $name) {
+            $exists = DB::table('subjects')
+                ->where('name', $name)
+                ->exists();
+
+            if ($exists) continue;
+
             DB::table('subjects')->insert([
-                'name' => $subject['name'],
+                'subject_code' => strtoupper(substr(preg_replace('/[^A-Za-z0-9]/', '', $name), 0, 12)),
+                'name'       => $name,
+                'status'     => 'Active',
                 'created_at' => now(),
                 'updated_at' => now(),
             ]);

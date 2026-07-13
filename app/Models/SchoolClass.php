@@ -3,30 +3,38 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\SoftDeletes;
 
 class SchoolClass extends Model
 {
+    use SoftDeletes;
+
     protected $table = 'classes';
 
     protected $fillable = [
         'name',
         'teacher_id',
+        'generation_id',
+        'description',
+        'is_active',
     ];
 
-    /**
-     * Get the students for the class.
-     */
-    public function students(): HasMany
+    protected function casts(): array
     {
-        return $this->hasMany(Student::class, 'class_id');
+        return [
+            'is_active' => 'boolean',
+        ];
     }
 
-    /**
-     * Get the teacher that owns the class.
-     */
-    public function teacher()
+    public function teacher(): BelongsTo
     {
-        return $this->belongsTo(User::class, 'teacher_id');
+        return $this->belongsTo(Teacher::class, 'teacher_id');
+    }
+
+    public function generation(): BelongsTo
+    {
+        return $this->belongsTo(Generation::class, 'generation_id');
     }
 }
