@@ -3,33 +3,38 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\SoftDeletes;
 
 class SchoolClass extends Model
 {
-    use HasFactory;
+    use SoftDeletes;
 
     protected $table = 'classes';
 
     protected $fillable = [
         'name',
         'teacher_id',
-        'generation',
-        'room',
-        'students',
-        'status',
+        'generation_id',
+        'description',
+        'is_active',
     ];
 
-    protected $casts = [
-        'students' => 'integer',
-    ];
+    protected function casts(): array
+    {
+        return [
+            'is_active' => 'boolean',
+        ];
+    }
 
-    /**
-     * Get the teacher that owns the class.
-     */
     public function teacher(): BelongsTo
     {
-        return $this->belongsTo(User::class, 'teacher_id');
+        return $this->belongsTo(Teacher::class, 'teacher_id');
+    }
+
+    public function generation(): BelongsTo
+    {
+        return $this->belongsTo(Generation::class, 'generation_id');
     }
 }

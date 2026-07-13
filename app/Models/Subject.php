@@ -4,47 +4,31 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\SoftDeletes;
 
 class Subject extends Model
 {
-    use HasFactory;
+    use HasFactory, SoftDeletes;
 
     protected $fillable = [
+        'subject_code',
         'name',
-        'code',
-        'teacher',
-        'class',
         'credits',
-        'status',
         'description',
-        'image',
+        'department_id',
+        'status',
     ];
 
-    protected $casts = [
-        'credits' => 'integer',
-    ];
-
-    // Accessor for credits (alias for credit_hours compatibility)
-    public function getCreditHoursAttribute()
+    protected function casts(): array
     {
-        return $this->credits;
+        return [
+            'status' => 'string',
+        ];
     }
 
-    // Mutator for credits (alias for credit_hours compatibility)
-    public function setCreditHoursAttribute($value)
+    public function offerings(): HasMany
     {
-        $this->attributes['credits'] = $value;
-    }
-
-    // Accessor to convert status to is_active format
-    public function getIsActiveAttribute()
-    {
-        return $this->status == 'Active' ? 'Active' : 'Inactive';
-    }
-
-    // Mutator to convert is_active to status format
-    public function setIsActiveAttribute($value)
-    {
-        $this->attributes['status'] = in_array($value, ['Active', 1, '1', true]) ? 'Active' : 'Inactive';
+        return $this->hasMany(SubjectOffering::class);
     }
 }
