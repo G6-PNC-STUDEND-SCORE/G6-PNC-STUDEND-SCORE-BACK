@@ -132,8 +132,19 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/spreadsheet/subject/{subject}/term/{term}/import-google', [\App\Http\Controllers\Api\SpreadsheetController::class, 'importFromGoogleSheets'])->middleware('permission:create-scores');
     Route::put('/spreadsheet/weights', [\App\Http\Controllers\Api\SpreadsheetController::class, 'updateWeights'])->middleware('permission:update-scores');
 
-    // ── Google Sheets OAuth Integration ────────────────────────────
+    // Assessment weights
+    Route::get('/subjects/{subject}/weights', [\App\Http\Controllers\Api\AssessmentWeightController::class, 'index']);
+    Route::post('/subjects/{subject}/weights', [\App\Http\Controllers\Api\AssessmentWeightController::class, 'store']);
+    Route::delete('/subjects/{subject}/weights/{id}', [\App\Http\Controllers\Api\AssessmentWeightController::class, 'destroy']);
+    Route::get('/subjects/{subject}/weighted-scores', [\App\Http\Controllers\Api\AssessmentWeightController::class, 'computeWeightedScores']);
+
+    // ── Google Sheets Two-Way Sync ────────────────────────────────
+    Route::get('/google-sheets/link', [GoogleSheetsController::class, 'getLink'])->middleware('permission:view-scores');
+    Route::get('/google-sheets/logs', [GoogleSheetsController::class, 'getLogs'])->middleware('permission:view-scores');
     Route::post('/google-sheets/create', [GoogleSheetsController::class, 'createSheet'])->middleware('permission:view-scores');
-    Route::post('/google-sheets/import', [GoogleSheetsController::class, 'importSheet'])->middleware('permission:create-scores');
+    Route::post('/google-sheets/push', [GoogleSheetsController::class, 'pushSheet'])->middleware('permission:update-scores');
+    Route::post('/google-sheets/pull', [GoogleSheetsController::class, 'pullSheet'])->middleware('permission:update-scores');
+    Route::post('/google-sheets/sync-now', [GoogleSheetsController::class, 'syncNow'])->middleware('permission:update-scores');
+    Route::delete('/google-sheets/unlink', [GoogleSheetsController::class, 'unlink'])->middleware('permission:update-scores');
 });
 
