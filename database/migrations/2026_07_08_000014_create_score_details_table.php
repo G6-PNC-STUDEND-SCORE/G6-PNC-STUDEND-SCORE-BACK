@@ -8,26 +8,24 @@ return new class extends Migration
 {
     public function up(): void
     {
-Schema::create('score_details', function (Blueprint $table) {
+        Schema::create('score_details', function (Blueprint $table) {
             $table->id();
             $table->foreignId('score_id')->constrained('scores')->cascadeOnDelete();
-
-            // Normalized assessment type (weights live in assessment_types)
             $table->foreignId('assessment_type_id')
                 ->nullable()
                 ->constrained('assessment_types')
-                ->nullOnDelete()
-                ->cascadeOnUpdate();
-
-            $table->string('label', 50)->comment('e.g. Quiz 1, Quiz 2, Midterm, Final');
-            $table->integer('order_number')->nullable()->comment('Display order for quiz/assignment items');
-            $table->integer('max_score')->nullable()->comment('Maximum possible score (e.g., 10, 20, 100)');
-            $table->decimal('mark', 5, 2)->nullable();
+                ->nullOnDelete();
+            $table->string('label', 100)->comment('e.g. Quiz 1, Quiz 2, Assignment 1, Midterm, Final Exam');
+            $table->unsignedTinyInteger('sequence_number')->nullable()->comment('Sequence for ordering: 1, 2, 3...');
+            $table->decimal('max_score', 5, 2)->nullable()->comment('Maximum possible score for this item');
+            $table->decimal('score', 5, 2)->nullable()->comment('Actual score achieved');
+            $table->decimal('weight_percent', 5, 2)->nullable()->comment('Weight applied at detail level if different from assessment_type default');
+            $table->text('remarks')->nullable();
             $table->timestamps();
 
             $table->index('score_id');
             $table->index('assessment_type_id');
-            $table->index(['assessment_type_id', 'score_id'], 'score_details_type_score_idx');
+            $table->index(['score_id', 'assessment_type_id'], 'score_details_type_score_idx');
         });
     }
 
@@ -35,5 +33,4 @@ Schema::create('score_details', function (Blueprint $table) {
     {
         Schema::dropIfExists('score_details');
     }
-}
-;
+};
