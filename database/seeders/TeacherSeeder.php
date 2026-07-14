@@ -45,6 +45,7 @@ class TeacherSeeder extends Seeder
             $gen = DB::table('generations')->where('year', $year)->first();
             if (!$gen) {
                 $generationIds[$year] = DB::table('generations')->insertGetId([
+                    'name'       => 'Batch ' . $year,
                     'year'       => $year,
                     'is_current' => $year === 2026,
                     'created_at' => now(),
@@ -80,7 +81,6 @@ class TeacherSeeder extends Seeder
             foreach ($classes as $class) {
                 DB::table('classes')->insert([
                     'name'          => $class['name'],
-                    'teacher_id'    => $teacherId,
                     'generation_id' => $generationIds[$class['year']],
                     'created_at'    => now(),
                     'updated_at'    => now(),

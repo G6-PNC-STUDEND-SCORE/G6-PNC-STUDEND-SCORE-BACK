@@ -10,20 +10,18 @@ return new class extends Migration
     {
         Schema::create('transcript_details', function (Blueprint $table) {
             $table->id();
-
-            $table->foreignId('transcript_id')->constrained('transcripts')->restrictOnDelete();
-
-            $table->foreignId('report_card_id')->nullable()->constrained('report_cards')->nullOnDelete();
+            $table->foreignId('transcript_id')->constrained('transcripts')->cascadeOnDelete();
+            $table->foreignId('subject_id')->nullable()->constrained('subjects')->nullOnDelete();
             $table->foreignId('term_id')->nullable()->constrained('terms')->nullOnDelete();
 
             // Snapshot fields
-            $table->decimal('term_average', 5, 2)->nullable();
-            $table->string('term_grade', 10)->nullable();
-
+            $table->string('subject_name')->nullable();
+            $table->decimal('final_score', 5, 2)->nullable();
+            $table->string('grade', 10)->nullable();
             $table->timestamps();
 
-            $table->unique(['transcript_id', 'term_id', 'report_card_id'], 'transcript_detail_unique');
-            $table->index('report_card_id');
+            $table->unique(['transcript_id', 'subject_id', 'term_id'], 'transcript_detail_unique');
+            $table->index('subject_id');
             $table->index('term_id');
         });
     }
@@ -33,4 +31,3 @@ return new class extends Migration
         Schema::dropIfExists('transcript_details');
     }
 };
-

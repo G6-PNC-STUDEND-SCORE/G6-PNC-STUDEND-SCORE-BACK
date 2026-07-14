@@ -6,6 +6,7 @@ use App\Models\User;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Support\Str;
 
 class Role extends Model
 {
@@ -15,6 +16,17 @@ class Role extends Model
         'description',
         'is_active',
     ];
+
+    protected static function boot(): void
+    {
+        parent::boot();
+
+        static::creating(function (Role $role) {
+            if (empty($role->slug)) {
+                $role->slug = Str::slug($role->name, '-');
+            }
+        });
+    }
 
     protected function casts(): array
     {

@@ -2,12 +2,14 @@
 
 namespace App\Providers;
 
+use App\Models\RBAC\Role;
 use App\Models\SchoolClass;
 use App\Models\Score;
 use App\Models\Student;
 use App\Models\Subject;
 use App\Models\Teacher;
 use App\Models\User;
+use App\Observers\RoleObserver;
 use App\Observers\SchoolClassObserver;
 use App\Observers\ScoreObserver;
 use App\Observers\StudentObserver;
@@ -44,5 +46,6 @@ class AppServiceProvider extends ServiceProvider
         Subject::observe(SubjectObserver::class);
         Score::observe(ScoreObserver::class);
         User::observe(UserObserver::class);
+        Role::observe(RoleObserver::class);
     }
 }

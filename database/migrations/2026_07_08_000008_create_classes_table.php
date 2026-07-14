@@ -10,15 +10,12 @@ return new class extends Migration
     {
         Schema::create('classes', function (Blueprint $table) {
             $table->id();
-            $table->string('name', 100);
-            $table->foreignId('teacher_id')->nullable()->constrained('teachers')->nullOnDelete();
+            $table->string('name', 100)->comment('e.g. A, B, C, or Web Dev, System Admin');
             $table->foreignId('generation_id')->nullable()->constrained('generations')->nullOnDelete();
             $table->text('description')->nullable();
             $table->boolean('is_active')->default(true);
-            $table->softDeletes();
             $table->timestamps();
 
-            $table->index('teacher_id');
             $table->index('generation_id');
         });
     }

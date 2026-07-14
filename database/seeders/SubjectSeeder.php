@@ -23,7 +23,6 @@ class SubjectSeeder extends Seeder
             if ($exists) continue;
 
             DB::table('subjects')->insert([
-                'subject_code' => strtoupper(substr(preg_replace('/[^A-Za-z0-9]/', '', $name), 0, 12)),
                 'name'       => $name,
                 'status'     => 'Active',
                 'created_at' => now(),

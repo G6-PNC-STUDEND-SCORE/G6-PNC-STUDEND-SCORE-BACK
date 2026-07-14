@@ -13,13 +13,19 @@ class StudentSeeder extends Seeder
         $subjects = DB::table('subjects')->get();
         $teachers = DB::table('teachers')->get();
         $classes = DB::table('classes')->get();
-        $assessmentTypeIds = DB::table('assessment_types')->pluck('id', 'code');
+        $assessmentTypes = DB::table('assessment_types')->get()->keyBy('code');
+        $assessmentTypeIds = $assessmentTypes->pluck('id', 'code');
+        $quizWeight = ($assessmentTypes->get('quiz')->weight_percent ?? 20) / 100;
+        $assignmentWeight = ($assessmentTypes->get('assignment')->weight_percent ?? 10) / 100;
+        $midtermWeight = ($assessmentTypes->get('midterm')->weight_percent ?? 30) / 100;
+        $finalWeight = ($assessmentTypes->get('final')->weight_percent ?? 40) / 100;
 
         $currentYear = 2026;
         $generation = DB::table('generations')->where('year', $currentYear)->first();
         if (!$generation) {
             $generationId = DB::table('generations')->insertGetId([
-                'year'       => $currentYear,
+                'name' => 'Batch ' . $currentYear,
+                'year' => $currentYear,
                 'is_current' => true,
                 'created_at' => now(),
                 'updated_at' => now(),
@@ -28,7 +34,19 @@ class StudentSeeder extends Seeder
             $generationId = $generation->id;
         }
 
-        // Seed 4 terms
+        $academicYear = DB::table('academic_years')->where('year', $currentYear)->first();
+        if (!$academicYear) {
+            $academicYearId = DB::table('academic_years')->insertGetId([
+                'year' => $currentYear,
+                'name' => 'Academic Year ' . $currentYear,
+                'is_current' => true,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+        } else {
+            $academicYearId = $academicYear->id;
+        }
+
         $termDefs = [
             1 => ['name' => 'Term 1', 'start_date' => '2025-09-01', 'end_date' => '2025-11-30'],
             2 => ['name' => 'Term 2', 'start_date' => '2025-12-01', 'end_date' => '2026-02-28'],
@@ -38,22 +56,25 @@ class StudentSeeder extends Seeder
 
         $termIds = [];
         foreach ($termDefs as $number => $def) {
-            $term = DB::table('terms')->where('term_number', $number)->first();
+            $term = DB::table('terms')
+                ->where('term_number', $number)
+                ->where('academic_year_id', $academicYearId)
+                ->first();
             if (!$term) {
                 $termIds[$number] = DB::table('terms')->insertGetId([
+                    'academic_year_id' => $academicYearId,
                     'term_number' => $number,
-                    'name'        => $def['name'],
-                    'start_date'  => $def['start_date'],
-                    'end_date'    => $def['end_date'],
-                    'created_at'  => now(),
-                    'updated_at'  => now(),
+                    'name' => $def['name'],
+                    'start_date' => $def['start_date'],
+                    'end_date' => $def['end_date'],
+                    'created_at' => now(),
+                    'updated_at' => now(),
                 ]);
             } else {
                 $termIds[$number] = $term->id;
             }
         }
 
-        // Create subject_offerings for each subject x term combination
         $offeringIds = [];
         foreach ($subjects as $subject) {
             foreach ($termIds as $termId) {
@@ -64,19 +85,19 @@ class StudentSeeder extends Seeder
                     ->where('subject_id', $subject->id)
                     ->where('term_id', $termId)
                     ->where('class_id', $class->id)
-                    ->where('generation_id', $generationId)
+                    ->where('academic_year_id', $academicYearId)
                     ->first();
 
                 if (!$offering) {
                     $offeringId = DB::table('subject_offerings')->insertGetId([
-                        'subject_id'    => $subject->id,
-                        'teacher_id'    => $teacher->id,
-                        'class_id'      => $class->id,
-                        'generation_id' => $generationId,
-                        'term_id'       => $termId,
-                        'status'        => 'active',
-                        'created_at'    => now(),
-                        'updated_at'    => now(),
+                        'subject_id' => $subject->id,
+                        'teacher_id' => $teacher->id,
+                        'class_id' => $class->id,
+                        'term_id' => $termId,
+                        'academic_year_id' => $academicYearId,
+                        'status' => 'active',
+                        'created_at' => now(),
+                        'updated_at' => now(),
                     ]);
                     $offeringIds[$subject->id][$termId] = $offeringId;
                 } else {
@@ -85,143 +106,129 @@ class StudentSeeder extends Seeder
             }
         }
 
-        // Get student users
         $studentUsers = User::whereHas('role', function ($query) {
             $query->where('slug', 'student');
         })->get();
 
-        $intakeYear = 2026;
-        $nextSeq = DB::table('student_number_sequences')
-            ->where('intake_year', $intakeYear)
-            ->count() + 1;
-
+        $seq = 1;
         foreach ($studentUsers as $user) {
             if (DB::table('students')->where('user_id', $user->id)->exists()) {
                 continue;
             }
-
-            $studentNumber = sprintf('PNC%d-%03d', $intakeYear, $nextSeq);
-
-            $sequenceId = DB::table('student_number_sequences')->insertGetId([
-                'intake_year'    => $intakeYear,
-                'student_number' => $studentNumber,
-                'created_at'     => now(),
-                'updated_at'     => now(),
+            $studentNumber = sprintf('PNC%d-%03d', $currentYear, $seq);
+            DB::table('students')->insertGetId([
+                'user_id' => $user->id,
+                'student_id_number' => $studentNumber,
+                'generation_id' => $generationId,
+                'created_at' => now(),
+                'updated_at' => now(),
             ]);
-
-            DB::table('students')->insert([
-                'user_id'                    => $user->id,
-                'student_number_sequence_id' => $sequenceId,
-                'generation_id'              => $generationId,
-                'created_at'                 => now(),
-                'updated_at'                 => now(),
-            ]);
-
-            $nextSeq++;
+            $seq++;
         }
 
         $students = DB::table('students')->get();
+        $histories = DB::table('student_class_histories')
+            ->where('generation_id', $generationId)
+            ->get()
+            ->groupBy('student_id');
 
-        // Specific mark profiles per student (by index)
         $profiles = [
-            0 => ['name' => 'Roeurn Ros',   'quiz' => [85, 95], 'assignment' => [88, 95], 'midterm' => [88, 95], 'final' => [90, 98]],
-            1 => ['name' => 'Sreyvik Von',  'quiz' => [78, 88], 'assignment' => [75, 85], 'midterm' => [75, 85], 'final' => [78, 88]],
-            2 => ['name' => 'Makara Pinn',  'quiz' => [70, 80], 'assignment' => [68, 78], 'midterm' => [65, 78], 'final' => [70, 80]],
-            3 => ['name' => 'Makara Pon',   'quiz' => [60, 72], 'assignment' => [58, 70], 'midterm' => [55, 68], 'final' => [58, 70]],
-            4 => ['name' => 'Sreymao Lin',  'quiz' => [80, 92], 'assignment' => [82, 90], 'midterm' => [80, 90], 'final' => [83, 93]],
-            5 => ['name' => 'Ream Khorn',   'quiz' => [50, 65], 'assignment' => [50, 63], 'midterm' => [48, 62], 'final' => [50, 65]],
+            0 => ['quiz' => [85, 95], 'assignment' => [88, 95], 'midterm' => [88, 95], 'final' => [90, 98]],
+            1 => ['quiz' => [78, 88], 'assignment' => [75, 85], 'midterm' => [75, 85], 'final' => [78, 88]],
+            2 => ['quiz' => [70, 80], 'assignment' => [68, 78], 'midterm' => [65, 78], 'final' => [70, 80]],
+            3 => ['quiz' => [60, 72], 'assignment' => [58, 70], 'midterm' => [55, 68], 'final' => [58, 70]],
+            4 => ['quiz' => [80, 92], 'assignment' => [82, 90], 'midterm' => [80, 90], 'final' => [83, 93]],
+            5 => ['quiz' => [50, 65], 'assignment' => [50, 63], 'midterm' => [48, 62], 'final' => [50, 65]],
         ];
 
         $randInRange = fn(array $range) => round(rand($range[0] * 100, $range[1] * 100) / 100, 2);
 
-        // Create scores per student, per subject, per term
-        foreach ($students as $index => $student) {
-            $profile = $profiles[$index % count($profiles)];
+        foreach ($students as $i => $student) {
+            $profile = $profiles[$i % count($profiles)];
+            $studentHistories = $histories->get($student->id, collect());
+            $classHistory = $studentHistories->first();
+
+            if (!$classHistory) continue;
 
             foreach ($subjects as $subject) {
                 foreach ($termIds as $termId) {
                     $offeringId = $offeringIds[$subject->id][$termId] ?? null;
                     if (!$offeringId) continue;
 
-                    // Create enrollment
                     $enrollment = DB::table('student_subject_enrollments')
-                        ->where('student_id', $student->id)
+                        ->where('student_class_history_id', $classHistory->id)
                         ->where('subject_offering_id', $offeringId)
                         ->first();
 
                     if (!$enrollment) {
                         $enrollmentId = DB::table('student_subject_enrollments')->insertGetId([
-                            'student_id'          => $student->id,
+                            'student_class_history_id' => $classHistory->id,
                             'subject_offering_id' => $offeringId,
-                            'status'              => 'enrolled',
-                            'created_at'          => now(),
-                            'updated_at'          => now(),
+                            'status' => 'enrolled',
+                            'created_at' => now(),
+                            'updated_at' => now(),
                         ]);
                     } else {
                         $enrollmentId = $enrollment->id;
                     }
 
-                    // Check if score already exists for this enrollment
                     if (DB::table('scores')->where('student_subject_enrollment_id', $enrollmentId)->exists()) {
                         continue;
                     }
 
-                    $scoreId = DB::table('scores')->insertGetId([
-                        'student_subject_enrollment_id' => $enrollmentId,
-                        'created_at' => now(),
-                        'updated_at' => now(),
-                    ]);
-
-                    $q1   = $randInRange($profile['quiz']);
-                    $q2   = $randInRange($profile['quiz']);
-                    $q3   = $randInRange($profile['quiz']);
+                    $q1 = $randInRange($profile['quiz']);
+                    $q2 = $randInRange($profile['quiz']);
+                    $q3 = $randInRange($profile['quiz']);
                     $asgn = $randInRange($profile['assignment']);
-                    $mid  = $randInRange($profile['midterm']);
-                    $fin  = $randInRange($profile['final']);
+                    $mid = $randInRange($profile['midterm']);
+                    $fin = $randInRange($profile['final']);
 
-                    $details = [
-                        ['type' => 'quiz',       'label' => 'Quiz 1',    'mark' => $q1],
-                        ['type' => 'quiz',       'label' => 'Quiz 2',    'mark' => $q2],
-                        ['type' => 'quiz',       'label' => 'Quiz 3',    'mark' => $q3],
-                        ['type' => 'assignment', 'label' => 'Assignment','mark' => $asgn],
-                        ['type' => 'midterm',    'label' => 'Midterm',   'mark' => $mid],
-                        ['type' => 'final',      'label' => 'Final',     'mark' => $fin],
-                    ];
-
-                    foreach ($details as $detail) {
-                        DB::table('score_details')->insert([
-                            'score_id'            => $scoreId,
-                            'assessment_type_id'  => $assessmentTypeIds[$detail['type']],
-                            'label'               => $detail['label'],
-                            'mark'                => $detail['mark'],
-                            'max_score'           => 100,
-                            'created_at'          => now(),
-                            'updated_at'          => now(),
-                        ]);
-                    }
-
-                    // Formula: Quiz avg × 20% + Assignment × 10% + Midterm × 30% + Final × 40%
                     $quizAvg = round(($q1 + $q2 + $q3) / 3, 2);
-                    $total   = round(
-                        ($quizAvg * 0.20) +
-                        ($asgn    * 0.10) +
-                        ($mid     * 0.30) +
-                        ($fin     * 0.40),
-                        2
-                    );
+                    $total = round(($quizAvg * $quizWeight) + ($asgn * $assignmentWeight) + ($mid * $midtermWeight) + ($fin * $finalWeight), 2);
 
-                    $grade = match (true) {
+                    $passFail = $total >= 60 ? 'pass' : 'fail';
+                    $grade = match(true) {
                         $total >= 90 => 'A',
                         $total >= 80 => 'B',
                         $total >= 70 => 'C',
                         $total >= 60 => 'D',
-                        default      => 'F',
+                        default => 'F',
                     };
 
-                    DB::table('scores')->where('id', $scoreId)->update([
-                        'total' => $total,
+                    $scoreId = DB::table('scores')->insertGetId([
+                        'student_subject_enrollment_id' => $enrollmentId,
+                        'quiz_total' => $quizAvg,
+                        'assignment_total' => $asgn,
+                        'midterm_score' => $mid,
+                        'final_exam_score' => $fin,
+                        'total_weighted_score' => $total,
                         'grade' => $grade,
+                        'pass_fail' => $passFail,
+                        'created_at' => now(),
+                        'updated_at' => now(),
                     ]);
+
+                    $details = [
+                        ['type' => 'quiz', 'label' => 'Quiz 1', 'score' => $q1, 'seq' => 1],
+                        ['type' => 'quiz', 'label' => 'Quiz 2', 'score' => $q2, 'seq' => 2],
+                        ['type' => 'quiz', 'label' => 'Quiz 3', 'score' => $q3, 'seq' => 3],
+                        ['type' => 'assignment', 'label' => 'Assignment', 'score' => $asgn, 'seq' => 1],
+                        ['type' => 'midterm', 'label' => 'Midterm', 'score' => $mid, 'seq' => 1],
+                        ['type' => 'final', 'label' => 'Final Exam', 'score' => $fin, 'seq' => 1],
+                    ];
+
+                    foreach ($details as $detail) {
+                        DB::table('score_details')->insert([
+                            'score_id' => $scoreId,
+                            'assessment_type_id' => $assessmentTypeIds[$detail['type']],
+                            'label' => $detail['label'],
+                            'score' => $detail['score'],
+                            'sequence_number' => $detail['seq'],
+                            'max_score' => 100,
+                            'created_at' => now(),
+                            'updated_at' => now(),
+                        ]);
+                    }
                 }
             }
         }
@@ -232,23 +239,24 @@ class StudentSeeder extends Seeder
 
     private function seedClassHistories($students, $classes, int $generationId): void
     {
-        if ($classes->isEmpty()) {
-            return;
-        }
+        if ($classes->isEmpty()) return;
+
+        $academicYear = DB::table('academic_years')->where('is_current', true)->first();
+        $academicYearId = $academicYear->id ?? $generationId;
 
         foreach ($students as $index => $student) {
             $class = $classes[$index % $classes->count()];
-
             DB::table('student_class_histories')->updateOrInsert(
                 [
                     'student_id' => $student->id,
                     'class_id' => $class->id,
                     'generation_id' => $generationId,
-                    'status' => 'active',
                 ],
                 [
+                    'academic_year_id' => $academicYearId,
                     'start_date' => now()->subMonths(10)->toDateString(),
                     'end_date' => null,
+                    'status' => 'active',
                     'created_at' => now(),
                     'updated_at' => now(),
                 ]
@@ -264,34 +272,20 @@ class StudentSeeder extends Seeder
             ->value('users.id');
 
         foreach ($students as $student) {
-            $reportCardIds = [];
-
             foreach ($termIds as $termId) {
                 $scores = DB::table('scores')
                     ->join('student_subject_enrollments', 'scores.student_subject_enrollment_id', '=', 'student_subject_enrollments.id')
+                    ->join('student_class_histories', 'student_subject_enrollments.student_class_history_id', '=', 'student_class_histories.id')
                     ->join('subject_offerings', 'student_subject_enrollments.subject_offering_id', '=', 'subject_offerings.id')
-                    ->where('student_subject_enrollments.student_id', $student->id)
-                    ->where('subject_offerings.generation_id', $generationId)
+                    ->where('student_class_histories.student_id', $student->id)
                     ->where('subject_offerings.term_id', $termId)
-                    ->select(
-                        'scores.id as score_id',
-                        'scores.total',
-                        'scores.grade',
-                        'scores.remarks',
-                        'subject_offerings.id as subject_offering_id'
-                    )
+                    ->select('scores.id as score_id', 'scores.total_weighted_score', 'scores.grade', 'scores.pass_fail', 'scores.remarks', 'subject_offerings.id as subject_offering_id')
                     ->get();
 
-                if ($scores->isEmpty()) {
-                    continue;
-                }
+                if ($scores->isEmpty()) continue;
 
-                $average = round((float) $scores->avg('total'), 2);
-                $reportCard = DB::table('report_cards')
-                    ->where('student_id', $student->id)
-                    ->where('generation_id', $generationId)
-                    ->where('term_id', $termId)
-                    ->first();
+                $average = round((float) $scores->avg('total_weighted_score'), 2);
+                $reportCard = DB::table('report_cards')->where('student_id', $student->id)->where('term_id', $termId)->first();
 
                 if ($reportCard) {
                     $reportCardId = $reportCard->id;
@@ -320,37 +314,18 @@ class StudentSeeder extends Seeder
                     ]);
                 }
 
-                $reportCardIds[] = $reportCardId;
-
                 foreach ($scores as $score) {
                     DB::table('report_card_details')->updateOrInsert(
-                        [
-                            'report_card_id' => $reportCardId,
-                            'subject_offering_id' => $score->subject_offering_id,
-                        ],
-                        [
-                            'score_id' => $score->score_id,
-                            'subject_average' => $score->total,
-                            'grade' => $score->grade,
-                            'remarks' => $score->remarks,
-                            'created_at' => now(),
-                            'updated_at' => now(),
-                        ]
+                        ['report_card_id' => $reportCardId, 'subject_offering_id' => $score->subject_offering_id],
+                        ['score_id' => $score->score_id, 'total_score' => $score->total_weighted_score, 'grade' => $score->grade, 'remarks' => $score->remarks, 'created_at' => now(), 'updated_at' => now()]
                     );
                 }
             }
 
             foreach ($termIds as $termId) {
-                $cards = DB::table('report_cards')
-                    ->where('generation_id', $generationId)
-                    ->where('term_id', $termId)
-                    ->orderByDesc('total_average')
-                    ->get();
-
+                $cards = DB::table('report_cards')->where('term_id', $termId)->orderByDesc('total_average')->get();
                 foreach ($cards as $rank => $card) {
-                    DB::table('report_cards')->where('id', $card->id)->update([
-                        'rank_in_class' => $rank + 1,
-                    ]);
+                    DB::table('report_cards')->where('id', $card->id)->update(['rank_in_class' => $rank + 1]);
                 }
             }
 
@@ -360,19 +335,13 @@ class StudentSeeder extends Seeder
                 ->orderBy('term_id')
                 ->get();
 
-            if ($studentCards->isEmpty()) {
-                continue;
-            }
+            if ($studentCards->isEmpty()) continue;
 
             $overallAverage = round((float) $studentCards->avg('total_average'), 2);
-            $transcript = DB::table('transcripts')
-                ->where('student_id', $student->id)
-                ->where('generation_id', $generationId)
-                ->first();
+            $transcript = DB::table('transcripts')->where('student_id', $student->id)->where('generation_id', $generationId)->first();
 
             if ($transcript) {
-                $transcriptId = $transcript->id;
-                DB::table('transcripts')->where('id', $transcriptId)->update([
+                DB::table('transcripts')->where('id', $transcript->id)->update([
                     'overall_average' => $overallAverage,
                     'overall_grade' => $this->gradeFromAverage($overallAverage),
                     'status' => 'final',
@@ -396,17 +365,8 @@ class StudentSeeder extends Seeder
 
             foreach ($studentCards as $card) {
                 DB::table('transcript_details')->updateOrInsert(
-                    [
-                        'transcript_id' => $transcriptId,
-                        'term_id' => $card->term_id,
-                        'report_card_id' => $card->id,
-                    ],
-                    [
-                        'term_average' => $card->total_average,
-                        'term_grade' => $card->grade,
-                        'created_at' => now(),
-                        'updated_at' => now(),
-                    ]
+                    ['transcript_id' => $transcriptId ?? $transcript->id, 'term_id' => $card->term_id],
+                    ['created_at' => now(), 'updated_at' => now()]
                 );
             }
         }
@@ -414,7 +374,7 @@ class StudentSeeder extends Seeder
 
     private function gradeFromAverage(float $average): string
     {
-        return match (true) {
+        return match(true) {
             $average >= 90 => 'A',
             $average >= 80 => 'B',
             $average >= 70 => 'C',
