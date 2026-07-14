@@ -31,28 +31,4 @@ class Score extends Model
     {
         return $this->hasMany(ScoreDetail::class);
     }
-
-    public function quizzes(): HasMany
-    {
-        return $this->hasMany(ScoreDetail::class)
-            ->whereHas('assessmentType', fn ($query) => $query->where('code', 'quiz'));
-    }
-
-    public function assignments(): HasMany
-    {
-        return $this->hasMany(ScoreDetail::class)
-            ->whereHas('assessmentType', fn ($query) => $query->where('code', 'assignment'));
-    }
-
-    public function midterms(): HasMany
-    {
-        return $this->hasMany(ScoreDetail::class)
-            ->whereHas('assessmentType', fn ($query) => $query->where('code', 'midterm'));
-    }
-
-    public function finals(): HasMany
-    {
-        return $this->hasMany(ScoreDetail::class)
-            ->whereHas('assessmentType', fn ($query) => $query->where('code', 'final'));
-    }
 }

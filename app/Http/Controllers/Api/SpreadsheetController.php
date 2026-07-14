@@ -10,17 +10,17 @@ use App\Models\StudentSubjectEnrollment;
 use App\Models\Subject;
 use App\Models\SubjectOffering;
 use App\Models\Term;
+use App\Services\ScoreCalculationService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Http;
 
 class SpreadsheetController extends Controller
 {
-    /**
-     * GET /spreadsheet/subjects
-     * List all subjects that have active offerings grouped by term.
-     */
+    public function __construct(
+        private readonly ScoreCalculationService $scoreService
+    ) {}
+
     public function subjects(): JsonResponse
     {
         $subjects = Subject::whereHas('offerings', function ($q) {
@@ -29,7 +29,6 @@ class SpreadsheetController extends Controller
             $q->where('status', 'active')->with(['teacher.user', 'class', 'term']);
         }])->get();
 
-        // Group offerings by term for each subject
         $result = $subjects->map(function ($subject) {
             $terms = $subject->offerings->groupBy(fn($o) => $o->term_id)->map(function ($offerings, $termId) {
                 $first = $offerings->first();
@@ -62,11 +61,6 @@ class SpreadsheetController extends Controller
         ]);
     }
 
-    /**
-     * GET /spreadsheet/subject/{subject}/term/{term}
-     * Returns a spreadsheet for a subject in a given term.
-     * Aggregates all offerings of this subject in this term.
-     */
     public function bySubjectAndTerm(Subject $subject, Term $term): JsonResponse
     {
         $offeringIds = SubjectOffering::where('subject_id', $subject->id)
@@ -80,8 +74,6 @@ class SpreadsheetController extends Controller
             'score.details.assessmentType',
         ])->whereIn('subject_offering_id', $offeringIds)->get();
 
-        // Collect all unique score-detail columns, deduplicated by label+type
-        // This ensures each column (e.g., "Quiz 1") appears only ONCE
         $columnsMap = collect();
         $enrollments->each(function ($enr) use ($columnsMap) {
             if ($enr->score && $enr->score->details) {
@@ -89,7 +81,7 @@ class SpreadsheetController extends Controller
                     $key = $d->label . '_' . ($d->assessmentType?->code ?? 'unknown');
                     if (!$columnsMap->has($key)) {
                         $columnsMap->put($key, [
-                            'id' => $d->id,  // Use first detail's ID as canonical
+                            'id' => $d->id,
                             'label' => $d->label,
                             'type' => $d->assessmentType?->code ?? 'unknown',
                             'order_number' => $d->order_number ?? 0,
@@ -102,12 +94,10 @@ class SpreadsheetController extends Controller
         });
         $columns = $columnsMap->values()->sortBy('order_number')->values();
 
-        // Build rows - map each student's marks to the canonical column IDs
         $rows = $enrollments->map(function ($enr) use ($columns) {
             $detailMarks = [];
             $detailIdMap = [];
-            
-            // Create a map of label_type -> [mark, detail_id] for this student
+
             $studentMarkMap = collect();
             if ($enr->score && $enr->score->details) {
                 foreach ($enr->score->details as $d) {
@@ -118,8 +108,7 @@ class SpreadsheetController extends Controller
                     ]);
                 }
             }
-            
-            // Map canonical column IDs to this student's marks AND their actual detail IDs
+
             foreach ($columns as $col) {
                 $key = $col['label'] . '_' . $col['type'];
                 $studentData = $studentMarkMap->get($key);
@@ -137,7 +126,7 @@ class SpreadsheetController extends Controller
                 'total' => $enr->score?->total !== null ? (float) $enr->score->total : null,
                 'grade' => $enr->score?->grade,
                 'details' => $detailMarks,
-                'detail_ids' => $detailIdMap, // Maps canonical column ID -> actual detail ID for this student
+                'detail_ids' => $detailIdMap,
             ];
         });
 
@@ -165,10 +154,6 @@ class SpreadsheetController extends Controller
         ]);
     }
 
-    /**
-     * PUT /spreadsheet/subject/{subject}/term/{term}/details/{detail}
-     * Inline update of a score detail mark.
-     */
     public function updateDetail(Request $request, Subject $subject, Term $term, ScoreDetail $detail): JsonResponse
     {
         $request->validate([
@@ -176,15 +161,11 @@ class SpreadsheetController extends Controller
         ]);
 
         $detail->update(['mark' => $request->mark]);
-        $this->recalculateTotal($detail->score_id);
+        $this->scoreService->recalculateTotalById($detail->score_id);
 
         return response()->json(['success' => true, 'data' => $detail->fresh()]);
     }
 
-    /**
-     * POST /spreadsheet/subject/{subject}/term/{term}/details
-     * Add a new score-detail column for all enrollments of this subject+term.
-     */
     public function addDetail(Request $request, Subject $subject, Term $term): JsonResponse
     {
         $request->validate([
@@ -229,7 +210,7 @@ class SpreadsheetController extends Controller
                     $score = $enr->score;
                 }
 
-                $detail = ScoreDetail::create([
+                ScoreDetail::create([
                     'score_id' => $score->id,
                     'assessment_type_id' => $assessmentType->id,
                     'label' => $request->label,
@@ -237,7 +218,7 @@ class SpreadsheetController extends Controller
                     'order_number' => $request->order_number ?? 0,
                     'mark' => null,
                 ]);
-                $this->recalculateTotal($score->id);
+                $this->scoreService->recalculateTotalById($score->id);
             }
             DB::commit();
             return response()->json(['success' => true, 'message' => 'Column added.'], 201);
@@ -247,20 +228,14 @@ class SpreadsheetController extends Controller
         }
     }
 
-    /**
-     * DELETE /spreadsheet/subject/{subject}/term/{term}/details/{detail}
-     */
     public function deleteDetail(Subject $subject, Term $term, ScoreDetail $detail): JsonResponse
     {
         $scoreId = $detail->score_id;
         $detail->delete();
-        if ($scoreId) $this->recalculateTotal($scoreId);
+        $this->scoreService->recalculateTotalById($scoreId);
         return response()->json(['success' => true, 'message' => 'Detail deleted.']);
     }
 
-    /**
-     * PATCH /spreadsheet/subject/{subject}/term/{term}/details/{detail}/rename
-     */
     public function renameDetail(Request $request, Subject $subject, Term $term, ScoreDetail $detail): JsonResponse
     {
         $request->validate(['label' => 'required|string|max:50']);
@@ -268,9 +243,6 @@ class SpreadsheetController extends Controller
         return response()->json(['success' => true, 'data' => $detail->fresh()]);
     }
 
-    /**
-     * POST /spreadsheet/subject/{subject}/term/{term}/reorder
-     */
     public function reorderColumns(Request $request, Subject $subject, Term $term): JsonResponse
     {
         $request->validate([
@@ -292,9 +264,6 @@ class SpreadsheetController extends Controller
         return response()->json(['success' => true]);
     }
 
-    /**
-     * PUT /spreadsheet/weights
-     */
     public function updateWeights(Request $request): JsonResponse
     {
         $request->validate([
@@ -310,7 +279,7 @@ class SpreadsheetController extends Controller
             }
             Score::whereNotNull('total')->chunk(100, function ($scores) {
                 foreach ($scores as $score) {
-                    $this->recalculateTotal($score->id);
+                    $this->scoreService->recalculateTotal($score);
                 }
             });
             DB::commit();
@@ -321,11 +290,6 @@ class SpreadsheetController extends Controller
         }
     }
 
-    /**
-     * POST /spreadsheet/subject/{subject}/term/{term}/sync-google
-     * Exports data ready for Google Sheets integration.
-     * This generates a CSV-compatible blob URL for direct Google Sheets opening.
-     */
     public function syncToGoogleSheets(Subject $subject, Term $term): JsonResponse
     {
         $offeringIds = SubjectOffering::where('subject_id', $subject->id)
@@ -339,7 +303,6 @@ class SpreadsheetController extends Controller
             'score.details.assessmentType',
         ])->whereIn('subject_offering_id', $offeringIds)->get();
 
-        // Generate CSV content with DEDUPLICATED columns (same as bySubjectAndTerm)
         $columnsMap = collect();
         $enrollments->each(function ($enr) use ($columnsMap) {
             if ($enr->score && $enr->score->details) {
@@ -357,7 +320,6 @@ class SpreadsheetController extends Controller
         });
         $columns = $columnsMap->values();
 
-        // Build CSV
         $colLabels = $columns->pluck('label', 'id');
         $colTypes = $columns->pluck('type', 'id');
         $colIds = $columns->pluck('id');
@@ -392,11 +354,7 @@ class SpreadsheetController extends Controller
             $csv .= "\n";
         }
 
-        // Encode the CSV for Google Sheets import
         $csvEncoded = base64_encode($csv);
-        
-        // Use Google Sheets import URL with CSV data
-        // This will open Google Sheets and import the CSV data directly
         $googleSheetsUrl = "https://docs.google.com/spreadsheets/create?csv=" . $csvEncoded;
 
         return response()->json([
@@ -409,10 +367,6 @@ class SpreadsheetController extends Controller
         ]);
     }
 
-    /**
-     * POST /spreadsheet/subject/{subject}/term/{term}/import-google
-     * Import data back from Google Sheets (accepts CSV content).
-     */
     public function importFromGoogleSheets(Request $request, Subject $subject, Term $term): JsonResponse
     {
         $request->validate([
@@ -424,35 +378,32 @@ class SpreadsheetController extends Controller
             return response()->json(['message' => 'CSV must have at least a header and one row.'], 400);
         }
 
-        $header = str_getcsv($lines[0]);
-        // Header format: Student Name, Student ID, col1 (type), col2 (type), ..., Total, Grade, Remarks
-
         DB::beginTransaction();
         try {
+            $offeringIds = SubjectOffering::where('subject_id', $subject->id)
+                ->where('term_id', $term->id)
+                ->pluck('id');
+
             for ($i = 1; $i < count($lines); $i++) {
                 $line = trim($lines[$i]);
                 if (empty($line)) continue;
                 $data = str_getcsv($line);
                 if (count($data) < 2) continue;
 
-                $studentName = $data[0];
                 $studentNumber = $data[1] ?? '';
 
-                // Find the enrollment by student number
-                $enrollment = StudentSubjectEnrollment::whereIn('subject_offering_id', $offeringIds = SubjectOffering::where('subject_id', $subject->id)->where('term_id', $term->id)->pluck('id'))
+                $enrollment = StudentSubjectEnrollment::whereIn('subject_offering_id', $offeringIds)
                     ->whereHas('student.studentNumberSequence', fn($q) => $q->where('student_number', $studentNumber))
                     ->first();
 
                 if (!$enrollment) continue;
 
-                // Ensure score exists
                 if (!$enrollment->score) {
                     $score = Score::create(['student_subject_enrollment_id' => $enrollment->id]);
                 } else {
                     $score = $enrollment->score;
                 }
 
-                // Parse marks from columns (skip first 2: name, id; skip last 3: total, grade, remarks)
                 $colIndex = 0;
                 $details = ScoreDetail::with('assessmentType')
                     ->where('score_id', $score->id)
@@ -470,7 +421,7 @@ class SpreadsheetController extends Controller
                     $colIndex++;
                 }
 
-                $this->recalculateTotal($score->id);
+                $this->scoreService->recalculateTotalById($score->id);
             }
             DB::commit();
             return response()->json(['success' => true, 'message' => 'Data imported successfully.']);
@@ -478,53 +429,5 @@ class SpreadsheetController extends Controller
             DB::rollBack();
             return response()->json(['message' => $e->getMessage()], 500);
         }
-    }
-
-    private function recalculateTotal(?int $scoreId): void
-    {
-        if (!$scoreId) return;
-        $score = Score::find($scoreId);
-        if (!$score) return;
-
-        $details = ScoreDetail::with('assessmentType')
-            ->where('score_id', $scoreId)
-            ->whereNotNull('mark')
-            ->get();
-
-        if ($details->isEmpty()) {
-            $score->update(['total' => null, 'grade' => null]);
-            return;
-        }
-
-        $total = round($details
-            ->groupBy(fn($d) => $d->assessmentType?->code ?? 'unknown')
-            ->sum(function ($group) {
-                $assessmentType = $group->first()->assessmentType;
-                if (!$assessmentType) return 0;
-                $average = $this->calculateSimpleAverage($group);
-                return (($average ?? 0) * ((float) $assessmentType->weight_percent / 100));
-            }), 2);
-
-        $grade = match (true) {
-            $total >= 90 => 'A',
-            $total >= 80 => 'B+',
-            $total >= 75 => 'B',
-            $total >= 70 => 'C+',
-            $total >= 60 => 'C',
-            $total >= 50 => 'D',
-            default => 'F',
-        };
-
-        $score->update(['total' => $total, 'grade' => $grade]);
-    }
-
-    private function calculateSimpleAverage($details): ?float
-    {
-        $details = $details->filter(fn($d) => $d->mark !== null);
-        if ($details->isEmpty()) return null;
-        $totalMarks = $details->sum('mark');
-        $totalMaxScores = $details->filter(fn($d) => $d->max_score)->sum('max_score');
-        if ($totalMaxScores > 0) return ($totalMarks / $totalMaxScores) * 100;
-        return $details->avg('mark');
     }
 }

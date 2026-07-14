@@ -7,13 +7,17 @@ use App\Models\AssessmentType;
 use App\Models\Score;
 use App\Models\ScoreDetail;
 use App\Models\StudentSubjectEnrollment;
+use App\Services\ScoreCalculationService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
 class ScoreController extends Controller
 {
-    // GET /scores?student_id=&subject_offering_id=
+    public function __construct(
+        private readonly ScoreCalculationService $scoreService
+    ) {}
+
     public function index(Request $request): JsonResponse
     {
         $query = Score::with(['details.assessmentType', 'enrollment.student.user', 'enrollment.subjectOffering.subject', 'enrollment.subjectOffering.term']);
@@ -35,7 +39,6 @@ class ScoreController extends Controller
         ]);
     }
 
-    // GET /scores/{score}
     public function show(Score $score): JsonResponse
     {
         return response()->json([
@@ -44,8 +47,6 @@ class ScoreController extends Controller
         ]);
     }
 
-    // POST /scores
-    // Body: { student_subject_enrollment_id, remarks, details: [{type, label, mark, max_score, order_number}] }
     public function store(Request $request): JsonResponse
     {
         $request->validate([
@@ -79,7 +80,7 @@ class ScoreController extends Controller
                 }
             }
 
-            $this->recalculateTotal($score);
+            $this->scoreService->recalculateTotal($score);
             DB::commit();
 
             return response()->json([
@@ -92,8 +93,6 @@ class ScoreController extends Controller
         }
     }
 
-    // POST /scores/{score}/details — add a new quiz (or any detail) to existing score
-    // Body: { type, label, mark, max_score, order_number }
     public function addDetail(Request $request, Score $score): JsonResponse
     {
         $request->validate([
@@ -113,7 +112,7 @@ class ScoreController extends Controller
             'order_number'  => $request->order_number ?? null,
         ]);
 
-        $this->recalculateTotal($score);
+        $this->scoreService->recalculateTotal($score);
 
         return response()->json([
             'success' => true,
@@ -121,7 +120,6 @@ class ScoreController extends Controller
         ], 201);
     }
 
-    // PUT /scores/{score}/details/{detail} — update a specific detail (e.g. enter quiz mark)
     public function updateDetail(Request $request, Score $score, ScoreDetail $detail): JsonResponse
     {
         if ($detail->score_id !== $score->id) {
@@ -136,7 +134,7 @@ class ScoreController extends Controller
         ]);
 
         $detail->update($request->only('label', 'mark', 'max_score', 'order_number'));
-        $this->recalculateTotal($score);
+        $this->scoreService->recalculateTotal($score);
 
         return response()->json([
             'success' => true,
@@ -144,7 +142,6 @@ class ScoreController extends Controller
         ]);
     }
 
-    // DELETE /scores/{score}/details/{detail} — remove a quiz
     public function deleteDetail(Score $score, ScoreDetail $detail): JsonResponse
     {
         if ($detail->score_id !== $score->id) {
@@ -152,7 +149,7 @@ class ScoreController extends Controller
         }
 
         $detail->delete();
-        $this->recalculateTotal($score);
+        $this->scoreService->recalculateTotal($score);
 
         return response()->json([
             'success' => true,
@@ -160,65 +157,22 @@ class ScoreController extends Controller
         ]);
     }
 
-    // DELETE /scores/{score}
     public function destroy(Score $score): JsonResponse
     {
         $score->delete();
         return response()->json(['message' => 'Score deleted.']);
     }
 
-    // Recalculate total using formula:
-    // Quiz avg × 20% + Assignment avg × 10% + Midterm × 30% + Final × 40%
-    // Uses weighted percentage calculation when max_score is provided
-    private function recalculateTotal(Score $score): void
+    public function byEnrollment(StudentSubjectEnrollment $enrollment): JsonResponse
     {
-        $details = ScoreDetail::with('assessmentType')
-            ->where('score_id', $score->id)
-            ->whereNotNull('mark')
-            ->get();
+        $score = Score::with(['details.assessmentType'])
+            ->where('student_subject_enrollment_id', $enrollment->id)
+            ->first();
 
-        if ($details->isEmpty()) {
-            $score->update(['total' => null, 'grade' => null]);
-            return;
-        }
-
-        $total = round($details
-            ->groupBy(fn ($detail) => $detail->assessmentType?->code ?? 'unknown')
-            ->sum(function ($group) {
-                $assessmentType = $group->first()->assessmentType;
-                if (!$assessmentType) return 0;
-
-                $average = $this->calculateSimpleAverage($group);
-                return (($average ?? 0) * ((float) $assessmentType->weight_percent / 100));
-            }), 2);
-
-        $grade = match (true) {
-            $total >= 90 => 'A',
-            $total >= 80 => 'B',
-            $total >= 70 => 'C',
-            $total >= 60 => 'D',
-            default      => 'F',
-        };
-
-        $score->update(['total' => $total, 'grade' => $grade]);
-    }
-
-    private function calculateSimpleAverage($details): ?float
-    {
-        $details = $details->filter(fn($d) => $d->mark !== null);
-
-        if ($details->isEmpty()) {
-            return null;
-        }
-
-        $totalMarks = $details->sum('mark');
-        $totalMaxScores = $details->filter(fn($d) => $d->max_score)->sum('max_score');
-
-        if ($totalMaxScores > 0) {
-            return ($totalMarks / $totalMaxScores) * 100;
-        }
-
-        return $details->avg('mark');
+        return response()->json([
+            'success' => true,
+            'data' => $score,
+        ]);
     }
 
     private function assessmentTypeId(string $code): int
@@ -237,18 +191,5 @@ class ScoreController extends Controller
                 'is_active' => true,
             ]
         )->id;
-    }
-
-    // GET /scores/by-enrollment/{enrollment}
-    public function byEnrollment(StudentSubjectEnrollment $enrollment): JsonResponse
-    {
-        $score = Score::with(['details.assessmentType'])
-            ->where('student_subject_enrollment_id', $enrollment->id)
-            ->first();
-
-        return response()->json([
-            'success' => true,
-            'data' => $score,
-        ]);
     }
 }
