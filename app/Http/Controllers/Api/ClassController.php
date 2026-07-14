@@ -29,7 +29,7 @@ class ClassController extends Controller
         // Hide sensitive generation data from API response
         $classes->each(function ($class) {
             if ($class->generation) {
-                $class->generation->makeHidden(['year', 'is_current', 'created_at', 'updated_at']);
+                $class->generation->makeHidden(['is_current', 'created_at', 'updated_at']);
             }
         });
 
@@ -55,7 +55,7 @@ class ClassController extends Controller
 
         // Hide sensitive generation data from API response
         if ($class->generation) {
-            $class->generation->makeHidden(['year', 'is_current', 'created_at', 'updated_at']);
+            $class->generation->makeHidden(['is_current', 'created_at', 'updated_at']);
         }
 
         return response()->json([
@@ -82,7 +82,7 @@ class ClassController extends Controller
 
         // Hide sensitive generation data from API response
         if ($class->generation) {
-            $class->generation->makeHidden(['year', 'is_current', 'created_at', 'updated_at']);
+            $class->generation->makeHidden(['is_current', 'created_at', 'updated_at']);
         }
 
         return response()->json([
