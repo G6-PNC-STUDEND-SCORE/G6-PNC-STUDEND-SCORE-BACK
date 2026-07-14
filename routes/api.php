@@ -2,16 +2,13 @@
 
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\ChartController;
-<<<<<<< HEAD
-use App\Http\Controllers\Api\ProfileController;
-use App\Http\Controllers\Api\SubjectController;
-=======
->>>>>>> 2f7a714627b59ef1f7770da653c5690dab9f8268
 use App\Http\Controllers\Api\ClassController;
 use App\Http\Controllers\Api\DashboardController;
+use App\Http\Controllers\Api\GoogleSheetsController;
 use App\Http\Controllers\Api\ProfileController;
 use App\Http\Controllers\Api\PermissionController;
 use App\Http\Controllers\Api\ScoreController;
+use App\Http\Controllers\Api\SpreadsheetController;
 use App\Http\Controllers\Api\StudentController;
 use App\Http\Controllers\Api\SubjectController;
 use Illuminate\Support\Facades\Route;
@@ -52,15 +49,6 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::delete('/roles/{role}/permissions/{permission}', [PermissionController::class, 'revokePermission']);
     });
 
-<<<<<<< HEAD
-    // Teacher routes
-    Route::get('/teachers', [SubjectController::class, 'teachers']);
-
-    // Profile routes
-    Route::get('/profile', [ProfileController::class, 'show']);
-    Route::put('/profile', [ProfileController::class, 'update']);
-    Route::post('/profile/avatar', [ProfileController::class, 'uploadAvatar']);
-=======
     // ── Students ─────────────────────────────────────────────────
     Route::get('/students', [StudentController::class, 'index'])->middleware('permission:view-students');
     Route::get('/students/{student}', [StudentController::class, 'show'])->middleware('permission:view-students');
@@ -92,6 +80,37 @@ Route::middleware('auth:sanctum')->group(function () {
         ]);
     });
 
+    // ── Subject Offerings ────────────────────────────────────────
+    Route::get('/subject-offerings', function (\Illuminate\Http\Request $request) {
+        $query = \App\Models\SubjectOffering::with(['subject', 'teacher.user', 'class', 'term'])
+            ->where('status', 'active');
+        if ($request->term_id) $query->where('term_id', $request->term_id);
+        if ($request->class_id) $query->where('class_id', $request->class_id);
+        if ($request->teacher_id) $query->where('teacher_id', $request->teacher_id);
+        return response()->json(['success' => true, 'data' => $query->get()]);
+    })->middleware('permission:view-subjects');
+
+    // ── Enrollments by offering ──────────────────────────────────
+    Route::get('/subject-offerings/{offering}/enrollments', function (\App\Models\SubjectOffering $offering) {
+        $enrollments = \App\Models\StudentSubjectEnrollment::with([
+            'student.user',
+            'student.studentNumberSequence',
+            'score.details.assessmentType',
+        ])->where('subject_offering_id', $offering->id)->get();
+        return response()->json(['success' => true, 'data' => $enrollments]);
+    })->middleware('permission:view-scores');
+
+    // ── Assessment Types ─────────────────────────────────────────
+    Route::get('/assessment-types', function () {
+        return response()->json([
+            'success' => true,
+            'data' => \App\Models\AssessmentType::where('is_active', true)->get(),
+        ]);
+    });
+
+    // ── Score by enrollment ──────────────────────────────────────
+    Route::get('/scores/by-enrollment/{enrollment}', [ScoreController::class, 'byEnrollment'])->middleware('permission:view-scores');
+
     // ── Scores ───────────────────────────────────────────────────
     Route::get('/scores', [ScoreController::class, 'index'])->middleware('permission:view-scores');
     Route::get('/scores/{score}', [ScoreController::class, 'show'])->middleware('permission:view-scores');
@@ -100,6 +119,21 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/scores/{score}/details', [ScoreController::class, 'addDetail'])->middleware('permission:create-scores');
     Route::put('/scores/{score}/details/{detail}', [ScoreController::class, 'updateDetail'])->middleware('permission:update-scores');
     Route::delete('/scores/{score}/details/{detail}', [ScoreController::class, 'deleteDetail'])->middleware('permission:delete-scores');
->>>>>>> 2f7a714627b59ef1f7770da653c5690dab9f8268
+
+    // ── Spreadsheet (Score Sheet) ─────────────────────────────────
+    Route::get('/spreadsheet/subjects', [\App\Http\Controllers\Api\SpreadsheetController::class, 'subjects'])->middleware('permission:view-scores');
+    Route::get('/spreadsheet/subject/{subject}/term/{term}', [\App\Http\Controllers\Api\SpreadsheetController::class, 'bySubjectAndTerm'])->middleware('permission:view-scores');
+    Route::put('/spreadsheet/subject/{subject}/term/{term}/details/{detail}', [\App\Http\Controllers\Api\SpreadsheetController::class, 'updateDetail'])->middleware('permission:update-scores');
+    Route::patch('/spreadsheet/subject/{subject}/term/{term}/details/{detail}/rename', [\App\Http\Controllers\Api\SpreadsheetController::class, 'renameDetail'])->middleware('permission:update-scores');
+    Route::post('/spreadsheet/subject/{subject}/term/{term}/details', [\App\Http\Controllers\Api\SpreadsheetController::class, 'addDetail'])->middleware('permission:create-scores');
+    Route::delete('/spreadsheet/subject/{subject}/term/{term}/details/{detail}', [\App\Http\Controllers\Api\SpreadsheetController::class, 'deleteDetail'])->middleware('permission:delete-scores');
+    Route::post('/spreadsheet/subject/{subject}/term/{term}/reorder', [\App\Http\Controllers\Api\SpreadsheetController::class, 'reorderColumns'])->middleware('permission:update-scores');
+    Route::post('/spreadsheet/subject/{subject}/term/{term}/sync-google', [\App\Http\Controllers\Api\SpreadsheetController::class, 'syncToGoogleSheets'])->middleware('permission:view-scores');
+    Route::post('/spreadsheet/subject/{subject}/term/{term}/import-google', [\App\Http\Controllers\Api\SpreadsheetController::class, 'importFromGoogleSheets'])->middleware('permission:create-scores');
+    Route::put('/spreadsheet/weights', [\App\Http\Controllers\Api\SpreadsheetController::class, 'updateWeights'])->middleware('permission:update-scores');
+
+    // ── Google Sheets OAuth Integration ────────────────────────────
+    Route::post('/google-sheets/create', [GoogleSheetsController::class, 'createSheet'])->middleware('permission:view-scores');
+    Route::post('/google-sheets/import', [GoogleSheetsController::class, 'importSheet'])->middleware('permission:create-scores');
 });
 
