@@ -27,7 +27,7 @@ class AuthController extends Controller
         }
 
         return response()->json([
-            'user' => $user,
+            'user' => $this->userData($user),
             'token' => $user->createToken('api-token')->plainTextToken,
             'message' => 'Login successful',
         ]);
@@ -92,7 +92,7 @@ class AuthController extends Controller
             $token = $user->createToken('api-token')->plainTextToken;
 
             return response()->json([
-                'user' => $user,
+                'user' => $this->userData($user),
                 'token' => $token,
                 'message' => 'Login successful',
             ]);
@@ -113,7 +113,24 @@ class AuthController extends Controller
 
     public function user(Request $request): JsonResponse
     {
-        return response()->json(['user' => $request->user()]);
+        return response()->json(['user' => $this->userData($request->user())]);
+    }
+
+    /**
+     * Build a consistent user payload for the frontend.
+     * The SPA expects `role` to be a string (slug), not the relation object.
+     */
+    private function userData(User $user): array
+    {
+        $user->load('role');
+        $data = $user->toArray();
+        unset($data['role']);
+        $data['role'] = $user->role?->slug ?? 'user';
+        $data['permissions'] = $user->isAdmin()
+            ? \App\Models\RBAC\Permission::pluck('slug')->all()
+            : $user->role?->permissions->pluck('slug')->all() ?? [];
+
+        return $data;
     }
 
     public function changePassword(Request $request): JsonResponse

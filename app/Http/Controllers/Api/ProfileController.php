@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
@@ -15,11 +16,11 @@ class ProfileController extends Controller
      */
     public function show(Request $request): JsonResponse
     {
-        $user = $request->user();
+        $user = $request->user()->load('role');
 
         return response()->json([
             'success' => true,
-            'data' => $user,
+            'data' => $this->profileData($user),
         ]);
     }
 
@@ -82,11 +83,29 @@ class ProfileController extends Controller
             $user->save();
         }
 
+        $user->load('role');
+
         return response()->json([
             'success' => true,
             'message' => 'Profile updated successfully',
-            'data' => $user->fresh(),
+            'data' => $this->profileData($user),
         ]);
+    }
+
+    /**
+     * Build a consistent profile payload for the frontend.
+     * The SPA expects `role` to be a string (slug), not the relation object.
+     */
+    private function profileData(User $user): array
+    {
+        $data = $user->toArray();
+
+        // Remove the nested relation so the string `role` below is authoritative.
+        unset($data['role']);
+
+        $data['role'] = $user->role?->slug ?? 'user';
+
+        return $data;
     }
 
     /**

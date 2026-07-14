@@ -68,6 +68,16 @@ class PermissionSeeder extends Seeder
 
             // Activity Logs
             ['group' => 'activity-logs', 'slug' => 'view-activity-logs', 'name' => 'View Activity Logs'],
+
+            // Users
+            ['group' => 'users', 'slug' => 'view-users',   'name' => 'View Users'],
+            ['group' => 'users', 'slug' => 'create-users', 'name' => 'Create Users'],
+            ['group' => 'users', 'slug' => 'update-users', 'name' => 'Update Users'],
+            ['group' => 'users', 'slug' => 'delete-users', 'name' => 'Delete Users'],
+
+            // System
+            ['group' => 'system', 'slug' => 'manage-roles-permissions', 'name' => 'Manage Roles & Permissions'],
+            ['group' => 'system', 'slug' => 'view-own-student-info', 'name' => 'View Own Student Info'],
         ];
 
         foreach ($permissions as $perm) {
