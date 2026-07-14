@@ -12,47 +12,12 @@ use Illuminate\Support\Str;
 
 class SubjectController extends Controller
 {
-<<<<<<< HEAD
-    private function normalizeIsActive($value): int
-    {
-        // DB column is integer (0/1). Frontend sends 'Active'/'Inactive'.
-        if ($value === 'Active' || $value === true || $value === 1 || $value === '1') {
-            return 1;
-        }
-
-        if ($value === 'Inactive' || $value === false || $value === 0 || $value === '0') {
-            return 0;
-        }
-
-        // Fallback: treat unknown as Active(1)
-        return 1;
-    }
-
-    public function index(Request $request)
-=======
     // GET /subjects — all authenticated users
     public function index(Request $request): JsonResponse
->>>>>>> 2f7a714627b59ef1f7770da653c5690dab9f8268
     {
         $user  = $request->user();
         $query = Subject::with(['offerings.teacher.user', 'offerings.class', 'offerings.term']);
 
-<<<<<<< HEAD
-        // Search functionality
-        if ($request->has('search')) {
-            $search = $request->search;
-            $query->where(function ($q) use ($search) {
-                $q->where('name', 'like', "%{$search}%")
-                    ->orWhere('code', 'like', "%{$search}%")
-                    ->orWhere('teacher', 'like', "%{$search}%")
-                    ->orWhere('class', 'like', "%{$search}%");
-            });
-        }
-
-        // Filter by status
-        if ($request->has('status')) {
-            $query->where('is_active', $this->normalizeIsActive($request->status));
-=======
         // Teacher only sees their own subjects (through offerings)
         if ($user->hasRole('teacher')) {
             $teacher = Teacher::where('user_id', $user->id)->first();
@@ -69,7 +34,6 @@ class SubjectController extends Controller
 
         if ($request->status) {
             $query->where('status', $request->status);
->>>>>>> 2f7a714627b59ef1f7770da653c5690dab9f8268
         }
 
         return response()->json([
@@ -81,38 +45,6 @@ class SubjectController extends Controller
     // GET /subjects/{subject} — all authenticated users
     public function show(Subject $subject): JsonResponse
     {
-<<<<<<< HEAD
-        $validator = Validator::make($request->all(), [
-            'name' => 'required|string|max:255',
-            'teacher' => 'nullable|string|max:255',
-            'class' => 'required|string|max:50',
-            'is_active' => 'required|in:Active,Inactive,1,0,true,false',
-            'image' => 'nullable|string|max:255',
-        ]);
-
-        if ($validator->fails()) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Validation error',
-                'errors' => $validator->errors()
-            ], 422);
-        }
-
-        $subjectData = $request->all();
-$subjectData['code'] = $subjectData['code'] ?? ('SUB' . time()); // Generate default code if not provided
-        $subjectData['credit_hours'] = $subjectData['credit_hours'] ?? 3; // Default to 3 credit hours if not provided
-        $subjectData['is_active'] = $subjectData['is_active'] ?? 'Active'; // Default to Active if not provided
-
-        // Set default value for teacher if empty
-        if (empty($subjectData['teacher'])) {
-            $subjectData['teacher'] = 'N/A';
-        }
-
-        // Normalize is_active to integer for DB
-        $subjectData['is_active'] = $this->normalizeIsActive($subjectData['is_active']);
-
-        $subject = Subject::create($subjectData);
-=======
         return response()->json([
             'success' => true,
             'data'    => $subject->load(['offerings.teacher.user', 'offerings.class']),
@@ -129,17 +61,25 @@ $subjectData['code'] = $subjectData['code'] ?? ('SUB' . time()); // Generate def
             'description'=> 'nullable|string',
             'department_id' => 'nullable|integer|exists:departments,id',
             'status'     => 'in:Active,Inactive',
+            'quiz_weight' => 'nullable|integer|min:0|max:100',
+            'assignment_weight' => 'nullable|integer|min:0|max:100',
+            'midterm_weight' => 'nullable|integer|min:0|max:100',
+            'final_weight' => 'nullable|integer|min:0|max:100',
         ]);
 
         $subject = Subject::create([
             'subject_code' => $request->subject_code ?: $this->generateSubjectCode($request->name),
             'name'       => $request->name,
+            'class'      => $request->class ?? '',
             'credits'    => $request->credits,
             'description'=> $request->description,
             'department_id' => $request->department_id,
             'status'     => $request->status ?? 'Active',
+            'quiz_weight' => $request->quiz_weight ?? 20,
+            'assignment_weight' => $request->assignment_weight ?? 10,
+            'midterm_weight' => $request->midterm_weight ?? 30,
+            'final_weight' => $request->final_weight ?? 40,
         ]);
->>>>>>> 2f7a714627b59ef1f7770da653c5690dab9f8268
 
         return response()->json([
             'success' => true,
@@ -158,9 +98,20 @@ $subjectData['code'] = $subjectData['code'] ?? ('SUB' . time()); // Generate def
             'description'=> 'nullable|string',
             'department_id' => 'nullable|integer|exists:departments,id',
             'status'     => 'in:Active,Inactive',
+            'quiz_weight' => 'nullable|integer|min:0|max:100',
+            'assignment_weight' => 'nullable|integer|min:0|max:100',
+            'midterm_weight' => 'nullable|integer|min:0|max:100',
+            'final_weight' => 'nullable|integer|min:0|max:100',
         ]);
 
-        $subject->update($request->only('subject_code', 'name', 'credits', 'description', 'department_id', 'status'));
+        $updateData = $request->only('subject_code', 'name', 'credits', 'description', 'department_id', 'status', 'quiz_weight', 'assignment_weight', 'midterm_weight', 'final_weight');
+
+        // Ensure class field is included if it exists in the request
+        if ($request->has('class')) {
+            $updateData['class'] = $request->class;
+        }
+
+        $subject->update($updateData);
 
         return response()->json([
             'success' => true,
@@ -172,23 +123,11 @@ $subjectData['code'] = $subjectData['code'] ?? ('SUB' . time()); // Generate def
     // DELETE /subjects/{subject} — admin only
     public function destroy(Subject $subject): JsonResponse
     {
-<<<<<<< HEAD
-        $subject = Subject::findOrFail($id);
-
-        $validator = Validator::make($request->all(), [
-            'name' => 'required|string|max:255',
-            'code' => 'nullable|string|max:50|unique:subjects,code,' . $id,
-            'teacher' => 'nullable|string|max:255',
-            'class' => 'required|string|max:50',
-            'credit_hours' => 'nullable|integer|min:1|max:10',
-            'is_active' => 'required|in:Active,Inactive,1,0,true,false',
-            'image' => 'nullable|string|max:255',
-=======
         $subject->delete();
+
         return response()->json([
             'success' => true,
             'message' => 'Subject deleted successfully',
->>>>>>> 2f7a714627b59ef1f7770da653c5690dab9f8268
         ]);
     }
 
@@ -218,56 +157,6 @@ $subjectData['code'] = $subjectData['code'] ?? ('SUB' . time()); // Generate def
             $code = $base.'-'.$suffix++;
         }
 
-<<<<<<< HEAD
-        $subjectData = $request->all();
-
-        // Set default value for teacher if empty
-        if (empty($subjectData['teacher'])) {
-            $subjectData['teacher'] = 'N/A';
-        }
-
-        // Normalize is_active to integer for DB
-        if (isset($subjectData['is_active'])) {
-            $subjectData['is_active'] = $this->normalizeIsActive($subjectData['is_active']);
-        }
-
-        $subject->update($subjectData);
-
-        return response()->json([
-            'success' => true,
-            'message' => 'Subject updated successfully',
-            'data' => $subject
-        ]);
-    }
-
-    public function destroy($id)
-    {
-        $subject = Subject::findOrFail($id);
-        $subject->delete();
-
-        return response()->json([
-            'success' => true,
-            'message' => 'Subject deleted successfully'
-        ]);
-    }
-
-    public function teachers()
-    {
-        // Get distinct teacher names from subjects table
-        $teachers = Subject::select('teacher')
-            ->whereNotNull('teacher')
-            ->where('teacher', '!=', '')
-            ->distinct()
-            ->orderBy('teacher')
-            ->pluck('teacher');
-
-        return response()->json([
-            'success' => true,
-            'data' => $teachers
-        ]);
-=======
         return $code;
->>>>>>> 2f7a714627b59ef1f7770da653c5690dab9f8268
     }
 }
-

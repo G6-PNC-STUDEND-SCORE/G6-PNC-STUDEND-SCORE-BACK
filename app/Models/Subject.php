@@ -18,6 +18,10 @@ class Subject extends Model
         'description',
         'department_id',
         'status',
+        'quiz_weight',
+        'assignment_weight',
+        'midterm_weight',
+        'final_weight',
     ];
 
     protected function casts(): array

@@ -66,7 +66,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/subjects', [SubjectController::class, 'index'])->middleware('permission:view-subjects');
     Route::get('/subjects/{subject}', [SubjectController::class, 'show'])->middleware('permission:view-subjects');
     Route::post('/subjects', [SubjectController::class, 'store'])->middleware('permission:create-subjects');
-    Route::put('/subjects/{subject}', [SubjectController::class, 'update'])->middleware('permission:update-subjects');
+    Route::put('/subjects/{subject}', [SubjectController::class, 'update']);
     Route::delete('/subjects/{subject}', [SubjectController::class, 'destroy'])->middleware('permission:delete-subjects');
     Route::get('/teachers', [SubjectController::class, 'teachers'])->middleware('permission:view-teachers');
 
