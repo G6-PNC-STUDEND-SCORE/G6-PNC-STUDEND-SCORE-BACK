@@ -53,7 +53,7 @@ class ChartController extends Controller
             ->join('subjects', 'subject_offerings.subject_id', '=', 'subjects.id')
             ->select(
                 'subjects.name as subject',
-                DB::raw('ROUND(AVG(scores.total), 2) as average_score'),
+                DB::raw('ROUND(AVG(scores.total_weighted_score), 2) as average_score'),
                 DB::raw('COUNT(*) as student_count')
             )
             ->groupBy('subjects.id', 'subjects.name')
@@ -74,10 +74,10 @@ class ChartController extends Controller
         $totalClasses = DB::table('classes')->count();
         $totalTeachers = DB::table('teachers')->count();
 
-        $averageScore = DB::table('scores')->avg('total');
+        $averageScore = DB::table('scores')->avg('total_weighted_score');
 
-        $passCount = DB::table('scores')->where('total', '>=', 60)->count();
-        $failCount = DB::table('scores')->where('total', '<', 60)->count();
+        $passCount = DB::table('scores')->where('total_weighted_score', '>=', 60)->count();
+        $failCount = DB::table('scores')->where('total_weighted_score', '<', 60)->count();
         $totalWithScores = $passCount + $failCount;
         $passRate = $totalWithScores > 0 ? round(($passCount / $totalWithScores) * 100, 1) : 0;
 
@@ -105,12 +105,12 @@ class ChartController extends Controller
             ->select(
                 DB::raw('MONTH(created_at) as month'),
                 DB::raw('COUNT(*) as count'),
-                DB::raw('ROUND(AVG(total), 2) as avg_score'),
-                DB::raw('SUM(CASE WHEN total >= 60 THEN 1 ELSE 0 END) as pass_count'),
-                DB::raw('SUM(CASE WHEN total < 60 THEN 1 ELSE 0 END) as fail_count')
+                DB::raw('ROUND(AVG(total_weighted_score), 2) as avg_score'),
+                DB::raw('SUM(CASE WHEN total_weighted_score >= 60 THEN 1 ELSE 0 END) as pass_count'),
+                DB::raw('SUM(CASE WHEN total_weighted_score < 60 THEN 1 ELSE 0 END) as fail_count')
             )
             ->whereYear('created_at', $year)
-            ->whereNotNull('total')
+            ->whereNotNull('total_weighted_score')
             ->groupBy(DB::raw('MONTH(created_at)'))
             ->orderBy(DB::raw('MONTH(created_at)'))
             ->get()
