@@ -5,17 +5,12 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
-use Illuminate\Database\Eloquent\SoftDeletes;
-
 class SchoolClass extends Model
 {
-    use SoftDeletes;
-
     protected $table = 'classes';
 
     protected $fillable = [
         'name',
-        'teacher_id',
         'generation_id',
         'description',
         'is_active',

@@ -18,8 +18,18 @@ class Score extends Model
     protected function casts(): array
     {
         return [
-            'total' => 'decimal:2',
+            'total_weighted_score' => 'decimal:2',
         ];
+    }
+
+    public function getTotalAttribute(): ?float
+    {
+        return $this->attributes['total_weighted_score'] ?? null;
+    }
+
+    public function setTotalAttribute($value): void
+    {
+        $this->attributes['total_weighted_score'] = $value;
     }
 
     public function enrollment(): BelongsTo
