@@ -55,6 +55,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::put('/students/{student}', [StudentController::class, 'update'])->middleware('permission:update-students');
     Route::put('/students/{student}/assign-class', [StudentController::class, 'assignClass'])->middleware('permission:update-students');
     Route::delete('/students/{student}', [StudentController::class, 'destroy'])->middleware('permission:delete-students');
+    Route::post('/students/import', [StudentController::class, 'importBulk'])->middleware('permission:create-students');
 
     // ── Classes ──────────────────────────────────────────────────
     Route::get('/classes', [ClassController::class, 'index'])->middleware('permission:view-classes');
@@ -69,6 +70,18 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::put('/subjects/{subject}', [SubjectController::class, 'update'])->middleware('permission:update-subjects');
     Route::delete('/subjects/{subject}', [SubjectController::class, 'destroy'])->middleware('permission:delete-subjects');
     Route::get('/teachers', [SubjectController::class, 'teachers'])->middleware('permission:view-teachers');
+
+    // ── Generations ──────────────────────────────────────────────
+    Route::get('/generations', function () {
+        return response()->json([
+            'success' => true,
+            'data' => \App\Models\Generation::orderBy('year', 'desc')->get(['id', 'year'])->map(fn($g) => [
+                'id' => $g->id,
+                'year' => $g->year,
+                'name' => 'Generation ' . $g->year,
+            ]),
+        ]);
+    });
 
     // ── Terms ────────────────────────────────────────────────────
     Route::get('/terms', function () {
