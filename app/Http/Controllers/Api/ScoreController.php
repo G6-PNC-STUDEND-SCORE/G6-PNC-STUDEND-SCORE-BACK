@@ -10,6 +10,7 @@ use App\Models\StudentSubjectEnrollment;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 
 class ScoreController extends Controller
 {
@@ -163,6 +164,7 @@ class ScoreController extends Controller
     // DELETE /scores/{score}
     public function destroy(Score $score): JsonResponse
     {
+        Log::info('Score deleted', ['score_id' => $score->id]);
         $score->delete();
         return response()->json(['message' => 'Score deleted.']);
     }
