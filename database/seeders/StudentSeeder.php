@@ -75,9 +75,41 @@ class StudentSeeder extends Seeder
             }
         }
 
+        // ── Subject-term mapping (inline so this seeder works independently) ──
+        // Term number => list of subject names
+        $termSubjectNames = [
+            1 => ['Logic', 'BCU', 'MS Office', 'English', 'PL', 'Design'],
+            2 => ['Web design', 'Algorithms', 'Git', 'English for IT', 'PL'],
+            3 => ['PHP', 'Database', 'Javascript', 'QA', 'English', 'English for IT', 'PL'],
+            4 => ['Laravel', 'Node.js', 'Vue.js', 'OOP', 'Typescript'],
+        ];
+
+        // Build a lookup: subject_name => subject_id
+        $subjectNameToId = [];
+        foreach ($subjects as $s) {
+            $subjectNameToId[$s->name] = $s->id;
+        }
+
+        // Build lookup: "subject_id-term_id" => true for valid combinations
+        $validCombinations = [];
+        foreach ($termSubjectNames as $termNumber => $names) {
+            $termId = $termIds[$termNumber] ?? null;
+            if (!$termId) continue;
+            foreach ($names as $name) {
+                $sid = $subjectNameToId[$name] ?? null;
+                if ($sid) {
+                    $validCombinations[$sid . '-' . $termId] = true;
+                }
+            }
+        }
+
         $offeringIds = [];
         foreach ($subjects as $subject) {
             foreach ($termIds as $termId) {
+                // Only create offerings for valid subject-term combinations
+                if (!isset($validCombinations[$subject->id . '-' . $termId])) {
+                    continue;
+                }
                 $teacher = $teachers[($subject->id + $termId) % count($teachers)];
                 $class = $classes[($subject->id + $termId) % count($classes)];
 

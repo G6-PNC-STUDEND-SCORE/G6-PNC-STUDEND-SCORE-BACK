@@ -110,6 +110,18 @@ Route::middleware('auth:sanctum')->group(function () {
         ]);
     });
 
+    Route::get('/academic-years', function () {
+        return response()->json([
+            'success' => true,
+            'data' => \App\Models\Generation::all(['id', 'name']),
+        ]);
+    });
+
+    // ── Subject-Term Assignments (subject_term pivot) ─────────────
+    Route::get('/subject-terms', [\App\Http\Controllers\Api\SubjectTermController::class, 'index'])->middleware('permission:view-subjects');
+    Route::post('/subject-terms/sync', [\App\Http\Controllers\Api\SubjectTermController::class, 'syncBatch'])->middleware('permission:update-subjects');
+    Route::put('/subject-terms/{subject}', [\App\Http\Controllers\Api\SubjectTermController::class, 'syncSubject'])->middleware('permission:update-subjects');
+
     // ── Subject Offerings ────────────────────────────────────────
     Route::get('/subject-offerings', function (\Illuminate\Http\Request $request) {
         $query = \App\Models\SubjectOffering::with(['subject', 'teacher.user', 'class', 'term'])

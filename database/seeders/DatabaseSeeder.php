@@ -18,6 +18,7 @@ class DatabaseSeeder extends Seeder
             SubjectSeeder::class,
             AssessmentTypeSeeder::class,
             StudentSeeder::class,
+            SubjectTermSeeder::class,
         ]);
     }
 }

@@ -11,9 +11,11 @@ class SchoolClass extends Model
 
     protected $fillable = [
         'name',
+        'teacher_id',
         'generation_id',
         'description',
         'is_active',
+        'room',
     ];
 
     protected function casts(): array

@@ -58,9 +58,9 @@ class TeacherSeeder extends Seeder
 
         // Classes per teacher with generation
         $classNames = [
-            0 => [['name' => 'B12', 'year' => 2026], ['name' => 'B13', 'year' => 2026], ['name' => 'A12', 'year' => 2027]],
-            1 => [['name' => 'A13', 'year' => 2027], ['name' => 'B22', 'year' => 2026], ['name' => 'B21', 'year' => 2026]],
-            2 => [['name' => 'B23', 'year' => 2027], ['name' => 'B32', 'year' => 2027], ['name' => 'B31', 'year' => 2026]],
+            0 => [['name' => 'Web A', 'year' => 2026], ['name' => 'Web B', 'year' => 2026], ['name' => 'Web C', 'year' => 2027]],
+            1 => [['name' => 'Class A', 'year' => 2026], ['name' => 'Class B', 'year' => 2026], ['name' => 'Class C', 'year' => 2027]],
+            2 => [['name' => 'Class D', 'year' => 2027], ['name' => 'Web A', 'year' => 2027], ['name' => 'Web B', 'year' => 2027]],
         ];
 
         foreach ($teacherUsers as $index => $user) {
