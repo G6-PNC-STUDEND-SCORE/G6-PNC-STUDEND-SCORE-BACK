@@ -186,7 +186,6 @@ class StudentSeeder extends Seeder
                     $quizAvg = round(($q1 + $q2 + $q3) / 3, 2);
                     $total = round(($quizAvg * $quizWeight) + ($asgn * $assignmentWeight) + ($mid * $midtermWeight) + ($fin * $finalWeight), 2);
 
-                    $passFail = $total >= 60 ? 'pass' : 'fail';
                     $grade = match(true) {
                         $total >= 90 => 'A',
                         $total >= 80 => 'B',
@@ -197,13 +196,8 @@ class StudentSeeder extends Seeder
 
                     $scoreId = DB::table('scores')->insertGetId([
                         'student_subject_enrollment_id' => $enrollmentId,
-                        'quiz_total' => $quizAvg,
-                        'assignment_total' => $asgn,
-                        'midterm_score' => $mid,
-                        'final_exam_score' => $fin,
-                        'total_weighted_score' => $total,
+                        'total' => $total,
                         'grade' => $grade,
-                        'pass_fail' => $passFail,
                         'created_at' => now(),
                         'updated_at' => now(),
                     ]);
@@ -279,12 +273,12 @@ class StudentSeeder extends Seeder
                     ->join('subject_offerings', 'student_subject_enrollments.subject_offering_id', '=', 'subject_offerings.id')
                     ->where('student_class_histories.student_id', $student->id)
                     ->where('subject_offerings.term_id', $termId)
-                    ->select('scores.id as score_id', 'scores.total_weighted_score', 'scores.grade', 'scores.pass_fail', 'scores.remarks', 'subject_offerings.id as subject_offering_id')
+                    ->select('scores.id as score_id', 'scores.total', 'scores.grade', 'scores.remarks', 'subject_offerings.id as subject_offering_id')
                     ->get();
 
                 if ($scores->isEmpty()) continue;
 
-                $average = round((float) $scores->avg('total_weighted_score'), 2);
+                $average = round((float) $scores->avg('total'), 2);
                 $reportCard = DB::table('report_cards')->where('student_id', $student->id)->where('term_id', $termId)->first();
 
                 if ($reportCard) {
@@ -317,7 +311,7 @@ class StudentSeeder extends Seeder
                 foreach ($scores as $score) {
                     DB::table('report_card_details')->updateOrInsert(
                         ['report_card_id' => $reportCardId, 'subject_offering_id' => $score->subject_offering_id],
-                        ['score_id' => $score->score_id, 'total_score' => $score->total_weighted_score, 'grade' => $score->grade, 'remarks' => $score->remarks, 'created_at' => now(), 'updated_at' => now()]
+                        ['score_id' => $score->score_id, 'total_score' => $score->total, 'grade' => $score->grade, 'remarks' => $score->remarks, 'created_at' => now(), 'updated_at' => now()]
                     );
                 }
             }
