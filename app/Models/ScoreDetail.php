@@ -20,14 +20,11 @@ class ScoreDetail extends Model
         'mark',
     ];
 
-    protected function casts(): array
-    {
-        return [
-            'mark' => 'decimal:2',
-            'max_score' => 'integer',
-            'order_number' => 'integer',
-        ];
-    }
+    protected $casts = [
+        'mark' => 'decimal:2',
+        'max_score' => 'integer',
+        'order_number' => 'integer',
+    ];
 
     public function score(): BelongsTo
     {
