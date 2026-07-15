@@ -60,15 +60,16 @@ class GoogleSheetsController extends Controller
             $spreadsheetId = $spreadsheet['spreadsheetId'];
             $sheetName = $spreadsheet['sheets'][0]['properties']['title'];
 
+            // Append values to the sheet. Use query params for options and provide the values array as the request body.
+            $encodedSheet = rawurlencode($sheetName);
+            $appendUrl = "https://sheets.googleapis.com/v4/spreadsheets/{$spreadsheetId}/values/{$encodedSheet}:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS&range=" . rawurlencode("{$sheetName}!A1");
+
             $uploadResponse = Http::withToken($accessToken)
-                ->post("https://sheets.googleapis.com/v4/spreadsheets/{$spreadsheetId}/values/{$sheetName}:append", [
-                    'valueInputOption' => 'RAW',
-                    'insertDataOption' => 'INSERT_ROWS',
-                    'range' => "{$sheetName}!A1",
-                    'body' => ['values' => $this->csvToArray($csv)],
-                ]);
+                ->post($appendUrl, ['values' => $this->csvToArray($csv)]);
 
             if (!$uploadResponse->successful()) {
+                // Log the response for debugging
+                Log::error('Google Sheets append failed', ['status' => $uploadResponse->status(), 'body' => $uploadResponse->body()]);
                 return response()->json(['message' => 'Failed to upload data'], 500);
             }
 
