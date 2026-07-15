@@ -20,6 +20,7 @@ class ScoreDetail extends Model
         'score',
     ];
 
+<<<<<<< HEAD
     protected function casts(): array
     {
         return [
@@ -28,6 +29,13 @@ class ScoreDetail extends Model
             'sequence_number' => 'integer',
         ];
     }
+=======
+    protected $casts = [
+        'mark' => 'decimal:2',
+        'max_score' => 'integer',
+        'order_number' => 'integer',
+    ];
+>>>>>>> 2eeb3d53d5c6091b719c3d83a0ad61299548a13c
 
     public function getMarkAttribute(): ?float
     {

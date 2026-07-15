@@ -15,12 +15,18 @@ class Score extends Model
         'remarks',
     ];
 
+<<<<<<< HEAD
     protected function casts(): array
     {
         return [
             'total_weighted_score' => 'decimal:2',
         ];
     }
+=======
+    protected $casts = [
+        'total' => 'decimal:2',
+    ];
+>>>>>>> 2eeb3d53d5c6091b719c3d83a0ad61299548a13c
 
     public function getTotalAttribute(): ?float
     {
