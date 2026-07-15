@@ -4,16 +4,21 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\AssessmentType;
+use App\Models\RBAC\Role;
 use App\Models\Score;
 use App\Models\ScoreDetail;
+use App\Models\Student;
+use App\Models\StudentNumberSequence;
 use App\Models\StudentSubjectEnrollment;
 use App\Models\Subject;
 use App\Models\SubjectOffering;
 use App\Models\Term;
+use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 
 class SpreadsheetController extends Controller
 {
@@ -74,10 +79,14 @@ class SpreadsheetController extends Controller
             ->where('status', 'active')
             ->pluck('id');
 
+        // Select only needed columns to reduce data transfer
         $enrollments = StudentSubjectEnrollment::with([
-            'student.user',
-            'student.studentNumberSequence',
-            'score.details.assessmentType',
+            'student:id,user_id,student_number_sequence_id',
+            'student.user:id,name',
+            'student.studentNumberSequence:id,student_number',
+            'score:id,student_subject_enrollment_id,total,grade',
+            'score.details:id,score_id,assessment_type_id,label,mark,order_number,max_score',
+            'score.details.assessmentType:id,code,name,weight_percent',
         ])->whereIn('subject_offering_id', $offeringIds)->get();
 
         // Collect all unique score-detail columns, deduplicated by label+type
@@ -106,7 +115,7 @@ class SpreadsheetController extends Controller
         $rows = $enrollments->map(function ($enr) use ($columns) {
             $detailMarks = [];
             $detailIdMap = [];
-            
+
             // Create a map of label_type -> [mark, detail_id] for this student
             $studentMarkMap = collect();
             if ($enr->score && $enr->score->details) {
@@ -118,7 +127,7 @@ class SpreadsheetController extends Controller
                     ]);
                 }
             }
-            
+
             // Map canonical column IDs to this student's marks AND their actual detail IDs
             foreach ($columns as $col) {
                 $key = $col['label'] . '_' . $col['type'];
@@ -130,9 +139,9 @@ class SpreadsheetController extends Controller
             return [
                 'enrollment_id' => $enr->id,
                 'score_id' => $enr->score?->id,
-                'student_id' => $enr->student->id,
-                'student_name' => $enr->student->user?->name ?? 'N/A',
-                'student_number' => $enr->student->studentNumberSequence?->student_number ?? '',
+                'student_id' => $enr->student?->id,
+                'student_name' => $enr->student?->user?->name ?? 'N/A',
+                'student_number' => $enr->student?->studentNumberSequence?->student_number ?? '',
                 'offering_id' => $enr->subject_offering_id,
                 'total' => $enr->score?->total !== null ? (float) $enr->score->total : null,
                 'grade' => $enr->score?->grade,
@@ -179,6 +188,170 @@ class SpreadsheetController extends Controller
         $this->recalculateTotal($detail->score_id);
 
         return response()->json(['success' => true, 'data' => $detail->fresh()]);
+    }
+
+    /**
+     * PUT /spreadsheet/subject/{subject}/term/{term}/enrollments/{enrollment}
+     * Update a student's name and/or student number from the score sheet.
+     * If the enrollment has no student yet (legacy blank rows), creates one on the fly.
+     */
+    public function updateStudentInfo(Request $request, Subject $subject, Term $term, StudentSubjectEnrollment $enrollment): JsonResponse
+    {
+        $request->validate([
+            'student_name' => 'nullable|string|max:255',
+            'student_number' => 'nullable|string|max:50',
+        ]);
+
+        DB::beginTransaction();
+        try {
+            $student = $enrollment->student;
+
+            // If no student exists yet (legacy blank row), create one now
+            if (!$student) {
+                $student = $this->createPlaceholderStudent();
+                $enrollment->update(['student_id' => $student->id]);
+                $enrollment->refresh();
+            }
+
+            if ($request->filled('student_name')) {
+                $student->user->update(['name' => $request->student_name]);
+            }
+
+            if ($request->filled('student_number')) {
+                if ($student->studentNumberSequence) {
+                    // Check if the student number is already taken by another student
+                    $existingSequence = StudentNumberSequence::where('student_number', $request->student_number)
+                        ->where('id', '!=', $student->studentNumberSequence->id)
+                        ->first();
+
+                    if ($existingSequence) {
+                        DB::rollBack();
+                        return response()->json([
+                            'message' => "Student ID '{$request->student_number}' is already taken by another student. Please use a different ID.",
+                        ], 409);
+                    }
+
+                    $student->studentNumberSequence->update(['student_number' => $request->student_number]);
+                }
+            }
+
+            DB::commit();
+
+            // Refresh to get latest data
+            $student->refresh();
+            $enrollment->refresh();
+
+            return response()->json([
+                'success' => true,
+                'data' => [
+                    'student_name' => $student->user?->name ?? 'N/A',
+                    'student_number' => $student->studentNumberSequence?->student_number ?? '',
+                    'enrollment_id' => $enrollment->id,
+                ],
+            ]);
+        } catch (\Exception $e) {
+            DB::rollBack();
+            \Log::error('Failed to update student info: ' . $e->getMessage());
+            return response()->json(['message' => $e->getMessage()], 500);
+        }
+    }
+
+    /**
+     * Create a placeholder User + Student for blank rows.
+     */
+    private function createPlaceholderStudent(): Student
+    {
+        // Use a short unique ID (13 hex chars from uniqid) to stay within
+        // the 20-character limit of the student_number column.
+        $shortId = uniqid();
+        $email = 'temp_' . $shortId . '@placeholder.local';
+
+        $studentRole = Role::where('slug', 'student')->first();
+
+        $user = User::create([
+            'name' => 'New Student',
+            'email' => $email,
+            'password' => bcrypt($shortId),
+            'role_id' => $studentRole?->id,
+            'status' => 'active',
+        ]);
+
+        // TEMP-xxxxxxxxxxxxx = ~18 chars — fits safely within 20-char limit
+        $sequence = StudentNumberSequence::create([
+            'intake_year' => now()->year,
+            'student_number' => 'TEMP-' . $shortId,
+        ]);
+
+        return Student::create([
+            'user_id' => $user->id,
+            'student_number_sequence_id' => $sequence->id,
+        ]);
+    }
+
+    /**
+     * POST /spreadsheet/subject/{subject}/term/{term}/enrollments
+     * Add a new student enrollment to all offerings of this subject+term.
+     * If student_id is not provided, creates a placeholder student and enrollment.
+     */
+    public function addEnrollment(Request $request, Subject $subject, Term $term): JsonResponse
+    {
+        $request->validate([
+            'student_id' => 'nullable|exists:students,id',
+        ]);
+
+        $offeringIds = SubjectOffering::where('subject_id', $subject->id)
+            ->where('term_id', $term->id)
+            ->where('status', 'active')
+            ->pluck('id');
+
+        if ($offeringIds->isEmpty()) {
+            return response()->json(['message' => 'No active offerings found for this subject and term.'], 404);
+        }
+
+        DB::beginTransaction();
+        try {
+            // If no student_id provided, create a placeholder student first
+            $studentId = $request->student_id;
+            if (!$studentId) {
+                $student = $this->createPlaceholderStudent();
+                $studentId = $student->id;
+            }
+
+            $enrollmentIds = [];
+            foreach ($offeringIds as $offeringId) {
+                // Check if enrollment already exists for this student+offering
+                $existing = StudentSubjectEnrollment::where('subject_offering_id', $offeringId)
+                    ->where('student_id', $studentId)
+                    ->first();
+
+                if ($existing) {
+                    $enrollment = $existing;
+                } else {
+                    $enrollment = StudentSubjectEnrollment::create([
+                        'student_id' => $studentId,
+                        'subject_offering_id' => $offeringId,
+                    ]);
+                }
+
+                $enrollmentIds[] = $enrollment->id;
+
+                // Create an empty score if it doesn't exist
+                if (!$enrollment->score) {
+                    $score = Score::create([
+                        'student_subject_enrollment_id' => $enrollment->id,
+                    ]);
+                }
+            }
+            DB::commit();
+
+            $message = $request->student_id ? 'Student enrolled successfully.' : 'New student row added. You can now edit the name and ID.';
+            return response()->json(['success' => true, 'message' => $message, 'enrollment_ids' => $enrollmentIds], 201);
+        } catch (\Exception $e) {
+            DB::rollBack();
+            \Log::error('Failed to add enrollment: ' . $e->getMessage());
+            \Log::error($e->getTraceAsString());
+            return response()->json(['message' => $e->getMessage()], 500);
+        }
     }
 
     /**
@@ -322,6 +495,88 @@ class SpreadsheetController extends Controller
     }
 
     /**
+     * PATCH /spreadsheet/subject/{subject}/term/{term}/details/change-type
+     * Change the assessment type of all score details with the given label in this subject+term.
+     */
+    public function changeDetailType(Request $request, Subject $subject, Term $term): JsonResponse
+    {
+        $request->validate([
+            'label' => 'required|string|max:50',
+            'old_type' => 'required|string|max:20',
+            'new_type' => 'required|in:quiz,assignment,midterm,final,project,custom',
+        ]);
+
+        $assessmentType = AssessmentType::firstOrCreate(
+            ['code' => $request->new_type],
+            [
+                'name' => ucfirst($request->new_type),
+                'weight_percent' => match ($request->new_type) {
+                    'quiz' => 10,
+                    'assignment' => 20,
+                    'project' => 20,
+                    'midterm' => 20,
+                    'final' => 30,
+                    default => 10,
+                },
+                'is_active' => true,
+            ]
+        );
+
+        DB::beginTransaction();
+        try {
+            $offeringIds = SubjectOffering::where('subject_id', $subject->id)
+                ->where('term_id', $term->id)
+                ->pluck('id');
+
+            $enrollmentIds = StudentSubjectEnrollment::whereIn('subject_offering_id', $offeringIds)
+                ->pluck('id');
+
+            $scoreIds = Score::whereIn('student_subject_enrollment_id', $enrollmentIds)
+                ->pluck('id');
+
+            $oldAssessmentType = AssessmentType::where('code', $request->old_type)->first();
+
+            if ($oldAssessmentType) {
+                $updated = ScoreDetail::whereIn('score_id', $scoreIds)
+                    ->where('label', $request->label)
+                    ->where('assessment_type_id', $oldAssessmentType->id)
+                    ->update(['assessment_type_id' => $assessmentType->id]);
+
+                DB::commit();
+                return response()->json([
+                    'success' => true,
+                    'data' => [
+                        'updated_count' => $updated,
+                        'message' => "Column type changed to '{$request->new_type}'.",
+                    ],
+                ]);
+            }
+
+            DB::commit();
+            return response()->json(['success' => true, 'data' => ['updated_count' => 0, 'message' => 'No matching columns found.']]);
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return response()->json(['message' => $e->getMessage()], 500);
+        }
+    }
+
+    /**
+     * GET /spreadsheet/student-numbers
+     * Returns all PNC-formatted student numbers, ordered by student_number.
+     */
+    public function studentNumbers(): JsonResponse
+    {
+        $numbers = StudentNumberSequence::where('student_number', 'like', 'PNC%')
+            ->orderBy('student_number')
+            ->pluck('student_number');
+
+        return response()->json([
+            'success' => true,
+            'data' => $numbers,
+        ]);
+    }
+
+    /**
      * POST /spreadsheet/subject/{subject}/term/{term}/sync-google
      * Exports data ready for Google Sheets integration.
      * This generates a CSV-compatible blob URL for direct Google Sheets opening.
@@ -394,7 +649,7 @@ class SpreadsheetController extends Controller
 
         // Encode the CSV for Google Sheets import
         $csvEncoded = base64_encode($csv);
-        
+
         // Use Google Sheets import URL with CSV data
         // This will open Google Sheets and import the CSV data directly
         $googleSheetsUrl = "https://docs.google.com/spreadsheets/create?csv=" . $csvEncoded;

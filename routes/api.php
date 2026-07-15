@@ -126,10 +126,14 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::put('/spreadsheet/subject/{subject}/term/{term}/details/{detail}', [\App\Http\Controllers\Api\SpreadsheetController::class, 'updateDetail'])->middleware('permission:update-scores');
     Route::patch('/spreadsheet/subject/{subject}/term/{term}/details/{detail}/rename', [\App\Http\Controllers\Api\SpreadsheetController::class, 'renameDetail'])->middleware('permission:update-scores');
     Route::post('/spreadsheet/subject/{subject}/term/{term}/details', [\App\Http\Controllers\Api\SpreadsheetController::class, 'addDetail'])->middleware('permission:create-scores');
+    Route::put('/spreadsheet/subject/{subject}/term/{term}/enrollments/{enrollment}', [\App\Http\Controllers\Api\SpreadsheetController::class, 'updateStudentInfo'])->middleware('permission:update-scores');
+    Route::post('/spreadsheet/subject/{subject}/term/{term}/enrollments', [\App\Http\Controllers\Api\SpreadsheetController::class, 'addEnrollment'])->middleware('permission:view-scores');
     Route::delete('/spreadsheet/subject/{subject}/term/{term}/details/{detail}', [\App\Http\Controllers\Api\SpreadsheetController::class, 'deleteDetail'])->middleware('permission:delete-scores');
+    Route::patch('/spreadsheet/subject/{subject}/term/{term}/details/change-type', [\App\Http\Controllers\Api\SpreadsheetController::class, 'changeDetailType'])->middleware('permission:update-scores');
     Route::post('/spreadsheet/subject/{subject}/term/{term}/reorder', [\App\Http\Controllers\Api\SpreadsheetController::class, 'reorderColumns'])->middleware('permission:update-scores');
     Route::post('/spreadsheet/subject/{subject}/term/{term}/sync-google', [\App\Http\Controllers\Api\SpreadsheetController::class, 'syncToGoogleSheets'])->middleware('permission:view-scores');
     Route::post('/spreadsheet/subject/{subject}/term/{term}/import-google', [\App\Http\Controllers\Api\SpreadsheetController::class, 'importFromGoogleSheets'])->middleware('permission:create-scores');
+    Route::get('/spreadsheet/student-numbers', [\App\Http\Controllers\Api\SpreadsheetController::class, 'studentNumbers'])->middleware('permission:view-scores');
     Route::put('/spreadsheet/weights', [\App\Http\Controllers\Api\SpreadsheetController::class, 'updateWeights'])->middleware('permission:update-scores');
 
     // ── Google Sheets OAuth Integration ────────────────────────────
