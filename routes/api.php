@@ -131,6 +131,9 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/spreadsheet/subject/{subject}/term/{term}/sync-google', [\App\Http\Controllers\Api\SpreadsheetController::class, 'syncToGoogleSheets'])->middleware('permission:view-scores');
     Route::post('/spreadsheet/subject/{subject}/term/{term}/import-google', [\App\Http\Controllers\Api\SpreadsheetController::class, 'importFromGoogleSheets'])->middleware('permission:create-scores');
     Route::put('/spreadsheet/weights', [\App\Http\Controllers\Api\SpreadsheetController::class, 'updateWeights'])->middleware('permission:update-scores');
+    Route::get('/spreadsheet/student-numbers', [\App\Http\Controllers\Api\SpreadsheetController::class, 'studentNumbers'])->middleware('permission:view-scores');
+    Route::post('/spreadsheet/subject/{subject}/term/{term}/enrollments', [\App\Http\Controllers\Api\SpreadsheetController::class, 'addEnrollment'])->middleware('permission:create-scores');
+    Route::put('/spreadsheet/subject/{subject}/term/{term}/enrollments/{enrollment}', [\App\Http\Controllers\Api\SpreadsheetController::class, 'updateEnrollment'])->middleware('permission:update-scores');
 
     // ── Google Sheets OAuth Integration ────────────────────────────
     Route::post('/google-sheets/create', [GoogleSheetsController::class, 'createSheet'])->middleware('permission:view-scores');

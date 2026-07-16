@@ -4,12 +4,16 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\AssessmentType;
+
 use App\Models\Score;
 use App\Models\ScoreDetail;
+use App\Models\Student;
+use App\Models\StudentNumberSequence;
 use App\Models\StudentSubjectEnrollment;
 use App\Models\Subject;
 use App\Models\SubjectOffering;
 use App\Models\Term;
+use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -102,6 +106,38 @@ class SpreadsheetController extends Controller
         });
         $columns = $columnsMap->values()->sortBy('order_number')->values();
 
+        // Ensure every enrollment has a Score + ScoreDetail for each column
+        $enrollments->each(function ($enr) use ($columns) {
+            if (!$enr->score) {
+                $score = Score::create(['student_subject_enrollment_id' => $enr->id]);
+                $enr->setRelation('score', $score);
+            }
+
+            $existingKeys = collect();
+            if ($enr->score->details) {
+                foreach ($enr->score->details as $d) {
+                    $key = $d->label . '_' . ($d->assessmentType?->code ?? 'unknown');
+                    $existingKeys->push($key);
+                }
+            }
+
+            foreach ($columns as $col) {
+                $key = $col['label'] . '_' . $col['type'];
+                if (!$existingKeys->contains($key)) {
+                    ScoreDetail::create([
+                        'score_id' => $enr->score->id,
+                        'assessment_type_id' => $col['assessment_type_id'],
+                        'label' => $col['label'],
+                        'max_score' => $col['max_score'],
+                        'order_number' => $col['order_number'],
+                        'mark' => null,
+                    ]);
+                }
+            }
+
+            $enr->score->load('details.assessmentType');
+        });
+
         // Build rows - map each student's marks to the canonical column IDs
         $rows = $enrollments->map(function ($enr) use ($columns) {
             $detailMarks = [];
@@ -130,9 +166,9 @@ class SpreadsheetController extends Controller
             return [
                 'enrollment_id' => $enr->id,
                 'score_id' => $enr->score?->id,
-                'student_id' => $enr->student->id,
-                'student_name' => $enr->student->user?->name ?? 'N/A',
-                'student_number' => $enr->student->studentNumberSequence?->student_number ?? '',
+                'student_id' => $enr->student?->id,
+                'student_name' => $enr->student?->user?->name ?? 'N/A',
+                'student_number' => $enr->student?->studentNumberSequence?->student_number ?? '',
                 'offering_id' => $enr->subject_offering_id,
                 'total' => $enr->score?->total !== null ? (float) $enr->score->total : null,
                 'grade' => $enr->score?->grade,
@@ -322,6 +358,102 @@ class SpreadsheetController extends Controller
     }
 
     /**
+     * GET /spreadsheet/student-numbers
+     * Returns all student numbers for the autocomplete dropdown.
+     */
+    public function studentNumbers(): JsonResponse
+    {
+        $numbers = StudentNumberSequence::pluck('student_number');
+        return response()->json(['success' => true, 'data' => $numbers]);
+    }
+
+    /**
+     * POST /spreadsheet/subject/{subject}/term/{term}/enrollments
+     * Add a new student enrollment to this subject+term.
+     */
+    public function addEnrollment(Request $request, Subject $subject, Term $term): JsonResponse
+    {
+        $request->validate([
+            'student_id' => 'nullable|integer|exists:students,id',
+        ]);
+
+        $offering = SubjectOffering::where('subject_id', $subject->id)
+            ->where('term_id', $term->id)
+            ->where('status', 'active')
+            ->first();
+
+        if (!$offering) {
+            return response()->json(['message' => 'No active offering found for this subject and term.'], 404);
+        }
+
+        $enrollment = StudentSubjectEnrollment::create([
+            'student_id' => $request->student_id,
+            'subject_offering_id' => $offering->id,
+            'status' => 'enrolled',
+        ]);
+
+        Score::create(['student_subject_enrollment_id' => $enrollment->id]);
+
+        return response()->json(['success' => true, 'data' => $enrollment], 201);
+    }
+
+    /**
+     * PUT /spreadsheet/subject/{subject}/term/{term}/enrollments/{enrollment}
+     * Update student name and/or number on an enrollment.
+     */
+    public function updateEnrollment(Request $request, Subject $subject, Term $term, StudentSubjectEnrollment $enrollment): JsonResponse
+    {
+        $request->validate([
+            'student_name' => 'nullable|string|max:100',
+            'student_number' => 'nullable|string|max:50',
+        ]);
+
+        $student = $enrollment->student;
+
+        if ($request->filled('student_name')) {
+            if ($student) {
+                $student->user->update(['name' => $request->student_name]);
+            } else {
+                $email = 'student_' . uniqid() . '@example.com';
+                $studentRoleId = \App\Models\RBAC\Role::where('slug', 'student')->value('id');
+                $user = User::create([
+                    'name' => $request->student_name,
+                    'email' => $email,
+                    'password' => bcrypt('password'),
+                    'role_id' => $studentRoleId,
+                    'status' => 'active',
+                ]);
+                $student = Student::create([
+                    'user_id' => $user->id,
+                ]);
+                $enrollment->update(['student_id' => $student->id]);
+            }
+        }
+
+        if ($request->filled('student_number')) {
+            if ($student && $student->studentNumberSequence) {
+                $student->studentNumberSequence->update(['student_number' => $request->student_number]);
+            } elseif ($student) {
+                $seq = StudentNumberSequence::create([
+                    'student_number' => $request->student_number,
+                    'intake_year' => date('Y'),
+                ]);
+                $student->update(['student_number_sequence_id' => $seq->id]);
+            }
+        }
+
+        $enrollment->load('student.user', 'student.studentNumberSequence');
+
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'student_name' => $enrollment->student?->user?->name ?? $request->student_name ?? '',
+                'student_number' => $enrollment->student?->studentNumberSequence?->student_number ?? $request->student_number ?? '',
+            ],
+        ]);
+    }
+
+    /**
      * POST /spreadsheet/subject/{subject}/term/{term}/sync-google
      * Exports data ready for Google Sheets integration.
      * This generates a CSV-compatible blob URL for direct Google Sheets opening.
@@ -370,8 +502,8 @@ class SpreadsheetController extends Controller
         $csv .= ",Total,Grade,Remarks\n";
 
         foreach ($enrollments as $enr) {
-            $name = str_replace(',', ' ', $enr->student->user?->name ?? 'N/A');
-            $studentNum = $enr->student->studentNumberSequence?->student_number ?? '';
+            $name = str_replace(',', ' ', $enr->student?->user?->name ?? 'N/A');
+            $studentNum = $enr->student?->studentNumberSequence?->student_number ?? '';
             $csv .= "{$name},{$studentNum}";
             if ($enr->score) {
                 $detailMap = [];
