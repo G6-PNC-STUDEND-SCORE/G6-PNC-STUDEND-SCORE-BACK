@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\Generation;
+use App\Models\GradeBoundary;
 use App\Models\Student;
 use App\Models\Teacher;
 use App\Models\Subject;
@@ -196,13 +197,7 @@ class DashboardService
     {
         $avg = (clone $q)->avg('total');
         if ($avg === null) return 'N/A';
-        return match (true) {
-            $avg >= 90 => 'A',
-            $avg >= 80 => 'B',
-            $avg >= 70 => 'C',
-            $avg >= 60 => 'D',
-            default    => 'F',
-        };
+        return GradeBoundary::getGrade((float) $avg) ?? 'F';
     }
 
     protected function getChartData(?int $gId, ?int $tId, ?int $cId, ?int $dId, ?int $teId): array

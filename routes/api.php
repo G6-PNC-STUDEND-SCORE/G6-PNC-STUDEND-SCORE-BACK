@@ -6,8 +6,10 @@ use App\Http\Controllers\Api\ChartController;
 use App\Http\Controllers\Api\ClassController;
 use App\Http\Controllers\Api\DashboardController;
 use App\Http\Controllers\Api\GoogleSheetsController;
+use App\Http\Controllers\Api\GradeBoundaryController;
 use App\Http\Controllers\Api\ProfileController;
 use App\Http\Controllers\Api\StudentPortalController;
+use App\Http\Controllers\Api\ReportCardController;
 use App\Http\Controllers\Api\PermissionController;
 use App\Http\Controllers\Api\ScoreController;
 use App\Http\Controllers\Api\SpreadsheetController;
@@ -150,6 +152,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::put('/scores/{score}/details/{detail}', [ScoreController::class, 'updateDetail'])->middleware('permission:update-scores');
     Route::delete('/scores/{score}/details/{detail}', [ScoreController::class, 'deleteDetail'])->middleware('permission:delete-scores');
 
+
     // ── Spreadsheet (Score Sheet) ─────────────────────────────────
     Route::get('/spreadsheet/subjects', [\App\Http\Controllers\Api\SpreadsheetController::class, 'subjects'])->middleware('permission:view-scores');
     Route::get('/spreadsheet/subject/{subject}/term/{term}', [\App\Http\Controllers\Api\SpreadsheetController::class, 'bySubjectAndTerm'])->middleware('permission:view-scores');
@@ -161,6 +164,117 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/spreadsheet/subject/{subject}/term/{term}/sync-google', [\App\Http\Controllers\Api\SpreadsheetController::class, 'syncToGoogleSheets'])->middleware('permission:view-scores');
     Route::post('/spreadsheet/subject/{subject}/term/{term}/import-google', [\App\Http\Controllers\Api\SpreadsheetController::class, 'importFromGoogleSheets'])->middleware('permission:create-scores');
     Route::put('/spreadsheet/weights', [\App\Http\Controllers\Api\SpreadsheetController::class, 'updateWeights'])->middleware('permission:update-scores');
+    Route::get('/spreadsheet/student-numbers', [\App\Http\Controllers\Api\SpreadsheetController::class, 'studentNumbers'])->middleware('permission:view-scores');
+    Route::post('/spreadsheet/subject/{subject}/term/{term}/enrollments', [\App\Http\Controllers\Api\SpreadsheetController::class, 'addEnrollment'])->middleware('permission:create-scores');
+    Route::put('/spreadsheet/subject/{subject}/term/{term}/enrollments/{enrollment}', [\App\Http\Controllers\Api\SpreadsheetController::class, 'updateEnrollment'])->middleware('permission:update-scores');
+
+    // ── Grade Boundaries ─────────────────────────────────────────
+    Route::get('/grade-boundaries', [\App\Http\Controllers\Api\GradeBoundaryController::class, 'index']);
+    Route::put('/grade-boundaries/{gradeBoundary}', [\App\Http\Controllers\Api\GradeBoundaryController::class, 'update'])->middleware('role:admin');
+
+    // ── Assessment Types CRUD ─────────────────────────────────────
+    Route::post('/assessment-types', function (\Illuminate\Http\Request $request) {
+        $request->validate([
+            'code' => 'required|string|max:50|unique:assessment_types,code',
+            'name' => 'required|string|max:100',
+            'weight_percent' => 'required|numeric|min:0|max:100',
+            'is_active' => 'boolean',
+        ]);
+        $type = \App\Models\AssessmentType::create($request->only('code', 'name', 'weight_percent', 'is_active'));
+        return response()->json(['success' => true, 'data' => $type, 'message' => 'Assessment type created.'], 201);
+    })->middleware('role:admin');
+
+    Route::put('/assessment-types/{assessmentType}', function (\Illuminate\Http\Request $request, \App\Models\AssessmentType $assessmentType) {
+        $request->validate([
+            'name' => 'sometimes|string|max:100',
+            'weight_percent' => 'sometimes|numeric|min:0|max:100',
+            'is_active' => 'sometimes|boolean',
+        ]);
+        $assessmentType->update($request->only('name', 'weight_percent', 'is_active'));
+        return response()->json(['success' => true, 'data' => $assessmentType->fresh(), 'message' => 'Assessment type updated.']);
+    })->middleware('role:admin');
+
+    Route::delete('/assessment-types/{assessmentType}', function (\App\Models\AssessmentType $assessmentType) {
+        if ($assessmentType->scoreDetails()->exists()) {
+            return response()->json(['message' => 'Cannot delete: assessment type is in use by score details.'], 409);
+        }
+        $assessmentType->delete();
+        return response()->json(['success' => true, 'message' => 'Assessment type deleted.']);
+    })->middleware('role:admin');
+
+    // ── Terms CRUD ────────────────────────────────────────────────
+    Route::post('/terms', function (\Illuminate\Http\Request $request) {
+        $request->validate([
+            'name' => 'required|string|max:100',
+            'term_number' => 'nullable|integer',
+            'start_date' => 'nullable|date',
+            'end_date' => 'nullable|date|after_or_equal:start_date',
+        ]);
+        $term = \App\Models\Term::create($request->only('name', 'term_number', 'start_date', 'end_date'));
+        return response()->json(['success' => true, 'data' => $term, 'message' => 'Term created.'], 201);
+    })->middleware('role:admin');
+
+    Route::put('/terms/{term}', function (\Illuminate\Http\Request $request, \App\Models\Term $term) {
+        $request->validate([
+            'name' => 'sometimes|string|max:100',
+            'term_number' => 'sometimes|integer',
+            'start_date' => 'nullable|date',
+            'end_date' => 'nullable|date|after_or_equal:start_date',
+        ]);
+        $term->update($request->only('name', 'term_number', 'start_date', 'end_date'));
+        return response()->json(['success' => true, 'data' => $term->fresh(), 'message' => 'Term updated.']);
+    })->middleware('role:admin');
+
+    Route::delete('/terms/{term}', function (\App\Models\Term $term) {
+        $term->delete();
+        return response()->json(['success' => true, 'message' => 'Term deleted.']);
+    })->middleware('role:admin');
+
+    // ── Generations CRUD ──────────────────────────────────────────
+    Route::get('/generations', function () {
+        return response()->json([
+            'success' => true,
+            'data' => \App\Models\Generation::orderBy('year', 'desc')->get(),
+        ]);
+    });
+
+    Route::post('/generations', function (\Illuminate\Http\Request $request) {
+        $request->validate([
+            'year' => 'required|integer|unique:generations,year',
+            'is_current' => 'boolean',
+        ]);
+        if ($request->is_current) {
+            \App\Models\Generation::where('is_current', true)->update(['is_current' => false]);
+        }
+        $gen = \App\Models\Generation::create($request->only('year', 'is_current'));
+        return response()->json(['success' => true, 'data' => $gen, 'message' => 'Generation created.'], 201);
+    })->middleware('role:admin');
+
+    Route::put('/generations/{generation}', function (\Illuminate\Http\Request $request, \App\Models\Generation $generation) {
+        $request->validate([
+            'year' => 'sometimes|integer|unique:generations,year,'.$generation->id,
+            'is_current' => 'sometimes|boolean',
+        ]);
+        if ($request->is_current) {
+            \App\Models\Generation::where('is_current', true)->where('id', '!=', $generation->id)->update(['is_current' => false]);
+        }
+        $generation->update($request->only('year', 'is_current'));
+        return response()->json(['success' => true, 'data' => $generation->fresh(), 'message' => 'Generation updated.']);
+    })->middleware('role:admin');
+
+    Route::delete('/generations/{generation}', function (\App\Models\Generation $generation) {
+        $generation->delete();
+        return response()->json(['success' => true, 'message' => 'Generation deleted.']);
+    })->middleware('role:admin');
+
+    // ── Report Cards ─────────────────────────────────────────────
+    Route::get('/report-cards', [ReportCardController::class, 'index'])->middleware('permission:view-report-cards');
+    Route::get('/report-cards/{reportCard}', [ReportCardController::class, 'show'])->middleware('permission:view-report-cards');
+    Route::post('/subject-offerings/{offering}/generate-report-cards', [ReportCardController::class, 'generateByOffering'])->middleware('permission:generate-report-cards');
+
+    // ── Transcripts ───────────────────────────────────────────────
+    Route::get('/transcripts', [ReportCardController::class, 'transcriptIndex'])->middleware('permission:view-report-cards');
+    Route::post('/students/{student}/generate-transcript', [ReportCardController::class, 'generateTranscript'])->middleware('permission:generate-report-cards');
 
     // ── Google Sheets OAuth Integration ────────────────────────────
     Route::post('/google-sheets/create', [GoogleSheetsController::class, 'createSheet'])->middleware('permission:view-scores');
