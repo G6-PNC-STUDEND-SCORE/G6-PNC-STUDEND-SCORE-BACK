@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\AssessmentType;
+use App\Models\GradeBoundary;
 use App\Models\Score;
 use App\Models\ScoreDetail;
 use App\Models\StudentSubjectEnrollment;
@@ -192,14 +193,7 @@ class ScoreController extends Controller
                 return (($average ?? 0) * ((float) $assessmentType->weight_percent / 100));
             }), 2);
 
-        $grade = match (true) {
-            $total >= 90 => 'A',
-            $total >= 80 => 'B',
-            $total >= 70 => 'C',
-            $total >= 60 => 'D',
-            default      => 'F',
-        };
-
+        $grade = GradeBoundary::getGrade($total) ?? 'F';
         $score->update(['total' => $total, 'grade' => $grade]);
     }
 
