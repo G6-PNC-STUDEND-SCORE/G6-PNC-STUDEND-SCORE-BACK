@@ -122,6 +122,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::put('/scores/{score}/details/{detail}', [ScoreController::class, 'updateDetail'])->middleware('permission:update-scores');
     Route::delete('/scores/{score}/details/{detail}', [ScoreController::class, 'deleteDetail'])->middleware('permission:delete-scores');
 
+
     // ── Spreadsheet (Score Sheet) ─────────────────────────────────
     Route::get('/spreadsheet/subjects', [\App\Http\Controllers\Api\SpreadsheetController::class, 'subjects'])->middleware('permission:view-scores');
     Route::get('/spreadsheet/subject/{subject}/term/{term}', [\App\Http\Controllers\Api\SpreadsheetController::class, 'bySubjectAndTerm'])->middleware('permission:view-scores');

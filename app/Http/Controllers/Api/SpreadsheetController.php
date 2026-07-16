@@ -4,16 +4,16 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\AssessmentType;
-use App\Models\GradeBoundary;
 use App\Models\Score;
 use App\Models\ScoreDetail;
 use App\Models\Student;
 use App\Models\StudentNumberSequence;
 use App\Models\StudentSubjectEnrollment;
-use App\Models\User;
+use App\Models\GradeBoundary;
 use App\Models\Subject;
 use App\Models\SubjectOffering;
 use App\Models\Term;
+use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -360,6 +360,46 @@ class SpreadsheetController extends Controller
     }
 
     /**
+     * GET /spreadsheet/student-numbers
+     * Returns all student numbers for the autocomplete dropdown.
+     */
+    public function studentNumbers(): JsonResponse
+    {
+        $numbers = StudentNumberSequence::pluck('student_number');
+        return response()->json(['success' => true, 'data' => $numbers]);
+    }
+
+    /**
+     * POST /spreadsheet/subject/{subject}/term/{term}/enrollments
+     * Add a new student enrollment to this subject+term.
+     */
+    public function addEnrollment(Request $request, Subject $subject, Term $term): JsonResponse
+    {
+        $request->validate([
+            'student_id' => 'nullable|integer|exists:students,id',
+        ]);
+
+        $offering = SubjectOffering::where('subject_id', $subject->id)
+            ->where('term_id', $term->id)
+            ->where('status', 'active')
+            ->first();
+
+        if (!$offering) {
+            return response()->json(['message' => 'No active offering found for this subject and term.'], 404);
+        }
+
+        $enrollment = StudentSubjectEnrollment::create([
+            'student_id' => $request->student_id,
+            'subject_offering_id' => $offering->id,
+            'status' => 'enrolled',
+        ]);
+
+        Score::create(['student_subject_enrollment_id' => $enrollment->id]);
+
+        return response()->json(['success' => true, 'data' => $enrollment], 201);
+    }
+
+    /**
      * PUT /spreadsheet/subject/{subject}/term/{term}/enrollments/{enrollment}
      * Update student name and/or number on an enrollment.
      */
@@ -374,7 +414,6 @@ class SpreadsheetController extends Controller
 
         if ($request->filled('student_name')) {
             if ($student) {
-                // Update existing user's name
                 $student->user->update(['name' => $request->student_name]);
             } else {
                 // Create a new user + student for this enrollment
@@ -416,49 +455,6 @@ class SpreadsheetController extends Controller
                 'student_number' => $enrollment->student?->studentNumberSequence?->student_number ?? $request->student_number ?? '',
             ],
         ]);
-    }
-
-    /**
-     * GET /spreadsheet/student-numbers
-     * Returns all student numbers for the autocomplete dropdown.
-     */
-    public function studentNumbers(): JsonResponse
-    {
-        $numbers = StudentNumberSequence::pluck('student_number');
-        return response()->json(['success' => true, 'data' => $numbers]);
-    }
-
-    /**
-     * POST /spreadsheet/subject/{subject}/term/{term}/enrollments
-     * Add a new student enrollment to this subject+term.
-     */
-    public function addEnrollment(Request $request, Subject $subject, Term $term): JsonResponse
-    {
-        $request->validate([
-            'student_id' => 'nullable|integer|exists:students,id',
-        ]);
-
-        // Find the first active offering for this subject+term
-        $offering = SubjectOffering::where('subject_id', $subject->id)
-            ->where('term_id', $term->id)
-            ->where('status', 'active')
-            ->first();
-
-        if (!$offering) {
-            return response()->json(['message' => 'No active offering found for this subject and term.'], 404);
-        }
-
-        // Create the enrollment
-        $enrollment = StudentSubjectEnrollment::create([
-            'student_id' => $request->student_id,
-            'subject_offering_id' => $offering->id,
-            'status' => 'enrolled',
-        ]);
-
-        // Create an empty score for the new enrollment
-        Score::create(['student_subject_enrollment_id' => $enrollment->id]);
-
-        return response()->json(['success' => true, 'data' => $enrollment], 201);
     }
 
     /**
