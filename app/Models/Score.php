@@ -15,12 +15,9 @@ class Score extends Model
         'remarks',
     ];
 
-    protected function casts(): array
-    {
-        return [
-            'total' => 'decimal:2',
-        ];
-    }
+    protected $casts = [
+        'total' => 'decimal:2',
+    ];
 
     public function enrollment(): BelongsTo
     {
