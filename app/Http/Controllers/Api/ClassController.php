@@ -24,9 +24,24 @@ class ClassController extends Controller
             }
         }
 
+        $query->orderByDesc('id');
+
         return response()->json([
             'success' => true,
-            'data'    => $query->get(),
+            'data'    => $query->get()->map(fn ($c) => [
+                'id' => $c->id,
+                'name' => $c->name,
+                'code' => $c->code,
+                'teacher_id' => $c->teacher_id,
+                'academic_year_id' => $c->academic_year_id,
+                'description' => $c->description,
+                'is_active' => (bool) $c->is_active,
+                'room' => $c->room,
+                'created_at' => $c->created_at,
+                'updated_at' => $c->updated_at,
+                'teacher' => $c->teacher ? ['id' => $c->teacher->id, 'name' => $c->teacher->user?->name ?? null] : null,
+                'academicYear' => $c->generation ? ['id' => $c->generation->id, 'name' => $c->generation->name] : null,
+            ]),
         ]);
     }
 
@@ -37,10 +52,11 @@ class ClassController extends Controller
             'name'          => 'required|string|max:100',
             'teacher_id'    => 'nullable|exists:teachers,id',
             'generation_id' => 'nullable|exists:generations,id',
+            'room'          => 'nullable|string|max:50',
             'description'   => 'nullable|string',
         ]);
 
-        $class = SchoolClass::create($request->only('name', 'teacher_id', 'generation_id', 'description'));
+        $class = SchoolClass::create($request->only('name', 'teacher_id', 'generation_id', 'room', 'description'));
 
         return response()->json([
             'success' => true,
@@ -56,11 +72,12 @@ class ClassController extends Controller
             'name'          => 'sometimes|string|max:100',
             'teacher_id'    => 'nullable|exists:teachers,id',
             'generation_id' => 'nullable|exists:generations,id',
+            'room'          => 'nullable|string|max:50',
             'description'   => 'nullable|string',
             'is_active'     => 'boolean',
         ]);
 
-        $class->update($request->only('name', 'teacher_id', 'generation_id', 'description', 'is_active'));
+        $class->update($request->only('name', 'teacher_id', 'generation_id', 'room', 'description', 'is_active'));
 
         return response()->json([
             'success' => true,

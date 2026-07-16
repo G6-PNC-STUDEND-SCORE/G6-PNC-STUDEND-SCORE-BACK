@@ -23,27 +23,33 @@ class SpreadsheetController extends Controller
 {
     /**
      * GET /spreadsheet/subjects
-     * List all subjects that have active offerings grouped by term.
+     * List all subjects grouped by term using the subject_term pivot table.
+     * Only subjects assigned to at least one term via the pivot table are shown.
      */
     public function subjects(): JsonResponse
     {
-        $subjects = Subject::whereHas('offerings', function ($q) {
-            $q->where('status', 'active');
-        })->with(['offerings' => function ($q) {
-            $q->where('status', 'active')->with(['teacher.user', 'class', 'term']);
+        $subjects = Subject::with(['terms', 'offerings' => function ($q) {
+            $q->where('status', 'active')->with(['teacher.user', 'class']);
         }])->get();
 
-        // Group offerings by term for each subject
-        $result = $subjects->map(function ($subject) {
-            $terms = $subject->offerings->groupBy(fn($o) => $o->term_id)->map(function ($offerings, $termId) {
-                $first = $offerings->first();
+        // Only show subjects that are assigned to terms via subject_term pivot
+        $result = $subjects->filter(function ($subject) {
+            return $subject->terms->isNotEmpty();
+        })->values()->map(function ($subject) {
+            // Use the subject_term pivot as the source of truth for which
+            // terms this subject belongs to (not offerings term_id)
+            $terms = $subject->terms->map(function ($term) use ($subject) {
+                $offerings = $subject->offerings->where('term_id', $term->id);
+
                 return [
-                    'term_id' => (int) $termId,
-                    'term_name' => $first->term?->name ?? 'N/A',
+                    'term_id' => $term->id,
+                    'term_name' => $term->name,
                     'teachers' => $offerings->pluck('teacher.user.name')->filter()->unique()->values(),
                     'classes' => $offerings->pluck('class.name')->filter()->unique()->values(),
                     'offering_ids' => $offerings->pluck('id'),
-                    'enrollment_count' => StudentSubjectEnrollment::whereIn('subject_offering_id', $offerings->pluck('id'))->count(),
+                    'enrollment_count' => $offerings->isNotEmpty()
+                        ? StudentSubjectEnrollment::whereIn('subject_offering_id', $offerings->pluck('id'))->count()
+                        : 0,
                 ];
             })->values();
 
@@ -55,7 +61,7 @@ class SpreadsheetController extends Controller
             ];
         });
 
-        $terms = Term::orderBy('id', 'desc')->get(['id', 'name']);
+        $terms = Term::orderBy('term_number')->get(['id', 'name']);
 
         return response()->json([
             'success' => true,

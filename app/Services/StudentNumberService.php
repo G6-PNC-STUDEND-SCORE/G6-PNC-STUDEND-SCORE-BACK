@@ -35,9 +35,13 @@ class StudentNumberService
      */
     public function generateNext(int $intakeYear): array
     {
-        $sequenceNumber = StudentNumberSequence::where('intake_year', $intakeYear)
+        // Use MAX() on the numeric part after the '-' to find the highest sequence number,
+        // rather than count(). This prevents duplicates when sequences are deleted.
+        $maxSeq = StudentNumberSequence::where('intake_year', $intakeYear)
             ->lockForUpdate()
-            ->count() + 1;
+            ->max(DB::raw("CAST(SUBSTRING(student_number, LOCATE('-', student_number) + 1) AS UNSIGNED)"));
+
+        $sequenceNumber = ($maxSeq ?? 0) + 1;
 
         // Format: PNC2026-001
         $studentNumber = sprintf(

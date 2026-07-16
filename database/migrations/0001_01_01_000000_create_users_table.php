@@ -17,14 +17,11 @@ return new class extends Migration
             $table->string('email')->unique();
             $table->timestamp('email_verified_at')->nullable();
             $table->string('password');
-            $table->string('phone', 20)->nullable();
-            $table->enum('gender', ['Male', 'Female', 'Other'])->nullable();
-            $table->date('date_of_birth')->nullable();
+            $table->string('gender')->nullable()->comment('Male, Female, Other');
             $table->string('avatar')->nullable();
             $table->string('google_id')->nullable()->unique();
             $table->unsignedBigInteger('role_id')->nullable();
             $table->enum('status', ['active', 'inactive', 'suspended'])->default('active');
-            $table->timestamp('last_login_at')->nullable();
             $table->rememberToken();
             $table->timestamps();
         });

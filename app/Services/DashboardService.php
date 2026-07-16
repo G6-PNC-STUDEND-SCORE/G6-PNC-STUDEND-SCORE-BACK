@@ -156,7 +156,9 @@ class DashboardService
             });
         }
 
-        $activeStudents = (clone $stuQ)->whereHas('user', fn($q) => $q->where('status', 'active'))->count();
+        $activeStudents = (clone $stuQ)->whereIn('user_id', function ($q) {
+            $q->select('id')->from('users')->where('status', 'active');
+        })->count();
         $totalStudents  = (clone $stuQ)->count();
         $totalTeachers  = (clone $tchQ)->count();
         $totalClasses   = (clone $clsQ)->count();
@@ -169,7 +171,7 @@ class DashboardService
         $totalEnrollments = (clone $enrQ)->count();
         $totalRC = (clone $rcQ)->count();
         $totalTR = (clone $trQ)->count();
-        $avgScore = round((clone $scrQ)->avg('total') ?? 0, 2);
+        $avgScore = round((clone $scrQ)->avg('total_weighted_score') ?? 0, 2);
         $avgGrade = $this->calcAvgGrade(clone $scrQ);
         $currentGen = Generation::where('is_current', true)->value('year');
         $currentTerm = Term::orderByDesc('term_number')->value('name');
@@ -195,7 +197,7 @@ class DashboardService
 
     protected function calcAvgGrade($q): string
     {
-        $avg = (clone $q)->avg('total');
+        $avg = (clone $q)->avg('total_weighted_score');
         if ($avg === null) return 'N/A';
         return GradeBoundary::getGrade((float) $avg) ?? 'F';
     }
@@ -254,7 +256,8 @@ class DashboardService
     protected function studentsByDept(array $f): array
     {
         $q = DB::table('students')
-            ->join('student_subject_enrollments', 'students.id', '=', 'student_subject_enrollments.student_id')
+            ->join('student_class_histories', 'students.id', '=', 'student_class_histories.student_id')
+            ->join('student_subject_enrollments', 'student_class_histories.id', '=', 'student_subject_enrollments.student_class_history_id')
             ->join('subject_offerings', 'student_subject_enrollments.subject_offering_id', '=', 'subject_offerings.id')
             ->join('teachers', 'subject_offerings.teacher_id', '=', 'teachers.id')
             ->join('departments', 'teachers.department_id', '=', 'departments.id')
@@ -310,7 +313,7 @@ class DashboardService
             ->join('subject_offerings', 'student_subject_enrollments.subject_offering_id', '=', 'subject_offerings.id')
             ->leftJoin('teachers', 'subject_offerings.teacher_id', '=', 'teachers.id')
             ->join('subjects', 'subject_offerings.subject_id', '=', 'subjects.id')
-            ->select('subjects.name', DB::raw('ROUND(AVG(scores.total),2) as average_score'), DB::raw('COUNT(*) as student_count'))
+            ->select('subjects.name', DB::raw('ROUND(AVG(scores.total_weighted_score),2) as average_score'), DB::raw('COUNT(*) as student_count'))
             ->groupBy('subjects.id','subjects.name')->orderByDesc('average_score');
         if ($f['gId']) $q->where('subject_offerings.generation_id', $f['gId']);
         if ($f['tId']) $q->where('subject_offerings.term_id', $f['tId']);
@@ -329,14 +332,13 @@ class DashboardService
     {
         try {
             $q = DB::table('teachers')->join('users','teachers.user_id','=','users.id')
-                ->leftJoin('classes','teachers.id','=','classes.teacher_id')
                 ->leftJoin('subject_offerings', function ($join) use ($f) {
                     $join->on('teachers.id', '=', 'subject_offerings.teacher_id');
                     if ($f['gId']) $join->where('subject_offerings.generation_id', $f['gId']);
                     if ($f['tId']) $join->where('subject_offerings.term_id', $f['tId']);
                     if ($f['cId']) $join->where('subject_offerings.class_id', $f['cId']);
                 })
-                ->select('users.name', DB::raw('COUNT(DISTINCT classes.id) as class_count'), DB::raw('COUNT(DISTINCT subject_offerings.id) as offering_count'))
+                ->select('users.name', DB::raw('COUNT(DISTINCT subject_offerings.class_id) as class_count'), DB::raw('COUNT(DISTINCT subject_offerings.id) as offering_count'))
                 ->groupBy('teachers.id','users.name')->orderByDesc('offering_count')->limit(12);
             if ($f['dId']) $q->where('teachers.department_id', $f['dId']);
             if ($f['teId']) $q->where('teachers.id', $f['teId']);
@@ -358,7 +360,7 @@ class DashboardService
             ->join('assessment_types', 'score_details.assessment_type_id', '=', 'assessment_types.id')
             ->select(
                 'assessment_types.code as type',
-                DB::raw('ROUND(AVG(score_details.mark),2) as average_mark'),
+                DB::raw('ROUND(AVG(score_details.score),2) as average_mark'),
                 DB::raw('ROUND(AVG(score_details.max_score),2) as average_max'),
                 DB::raw('COUNT(*) as count')
             )
@@ -401,7 +403,7 @@ class DashboardService
             ->join('subject_offerings','student_subject_enrollments.subject_offering_id','=','subject_offerings.id')
             ->leftJoin('teachers', 'subject_offerings.teacher_id', '=', 'teachers.id')
             ->join('terms','subject_offerings.term_id','=','terms.id')
-            ->select('terms.name as term_name','terms.term_number',DB::raw('ROUND(AVG(scores.total),2) as average_score'),DB::raw('COUNT(*) as count'))
+            ->select('terms.name as term_name','terms.term_number',DB::raw('ROUND(AVG(scores.total_weighted_score),2) as average_score'),DB::raw('COUNT(*) as count'))
             ->groupBy('terms.id','terms.name','terms.term_number')->orderBy('terms.term_number');
         if ($f['gId']) $q->where('subject_offerings.generation_id', $f['gId']);
         if ($f['tId']) $q->where('subject_offerings.term_id', $f['tId']);
@@ -420,9 +422,10 @@ class DashboardService
     {
         $q = DB::table('scores')
             ->join('student_subject_enrollments','scores.student_subject_enrollment_id','=','student_subject_enrollments.id')
-            ->join('students','student_subject_enrollments.student_id','=','students.id')
+            ->join('student_class_histories','student_subject_enrollments.student_class_history_id','=','student_class_histories.id')
+            ->join('students','student_class_histories.student_id','=','students.id')
             ->join('users','students.user_id','=','users.id')
-            ->select('users.name','students.id as student_id',DB::raw('ROUND(AVG(scores.total),2) as average_score'),DB::raw('MAX(scores.grade) as best_grade'),DB::raw('COUNT(scores.id) as score_count'))
+            ->select('users.name','students.id as student_id',DB::raw('ROUND(AVG(scores.total_weighted_score),2) as average_score'),DB::raw('MAX(scores.grade) as best_grade'),DB::raw('COUNT(scores.id) as score_count'))
             ->groupBy('users.name','students.id')->orderByDesc('average_score')->limit(10);
         if ($f['gId']) $q->where('students.generation_id', $f['gId']);
         if ($f['tId'] || $f['cId'] || $f['dId'] || $f['teId']) {
@@ -450,7 +453,7 @@ class DashboardService
             ->join('subject_offerings','student_subject_enrollments.subject_offering_id','=','subject_offerings.id')
             ->leftJoin('teachers', 'subject_offerings.teacher_id', '=', 'teachers.id')
             ->join('subjects','subject_offerings.subject_id','=','subjects.id')
-            ->select('subjects.name',DB::raw('ROUND(AVG(scores.total),2) as average_score'),DB::raw('COUNT(*) as enrollment_count'),DB::raw('SUM(CASE WHEN scores.total >= 60 THEN 1 ELSE 0 END) as pass_count'))
+            ->select('subjects.name',DB::raw('ROUND(AVG(scores.total_weighted_score),2) as average_score'),DB::raw('COUNT(*) as enrollment_count'),DB::raw('SUM(CASE WHEN scores.total_weighted_score >= 60 THEN 1 ELSE 0 END) as pass_count'))
             ->groupBy('subjects.id','subjects.name')->orderBy('average_score')->limit(5);
         if ($f['gId']) $q->where('subject_offerings.generation_id', $f['gId']);
         if ($f['tId']) $q->where('subject_offerings.term_id', $f['tId']);

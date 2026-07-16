@@ -16,7 +16,7 @@ class SubjectController extends Controller
     public function index(Request $request): JsonResponse
     {
         $user  = $request->user();
-        $query = Subject::with(['offerings.teacher.user', 'offerings.class', 'offerings.term']);
+        $query = Subject::with(['offerings.teacher.user', 'offerings.class', 'offerings.term', 'teachers.user']);
 
         // Teacher only sees their own subjects (through offerings)
         if ($user->hasRole('teacher')) {
@@ -36,18 +36,28 @@ class SubjectController extends Controller
             $query->where('status', $request->status);
         }
 
+        $query->orderByDesc('id');
+
+        $subjects = $query->get()->map(function (Subject $subject) {
+            $subject->setAttribute('teacher_ids', $subject->teachers->pluck('id'));
+            return $subject;
+        });
+
         return response()->json([
             'success' => true,
-            'data'    => $query->get(),
+            'data'    => $subjects,
         ]);
     }
 
     // GET /subjects/{subject} — all authenticated users
     public function show(Subject $subject): JsonResponse
     {
+        $subject->load(['offerings.teacher.user', 'offerings.class', 'teachers.user']);
+        $subject->setAttribute('teacher_ids', $subject->teachers->pluck('id'));
+
         return response()->json([
             'success' => true,
-            'data'    => $subject->load(['offerings.teacher.user', 'offerings.class']),
+            'data'    => $subject,
         ]);
     }
 
@@ -60,8 +70,12 @@ class SubjectController extends Controller
             'credits'    => 'nullable|integer|min:0|max:255',
             'description'=> 'nullable|string',
             'department_id' => 'nullable|integer|exists:departments,id',
-            'status'     => 'in:Active,Inactive',
+            'status'     => 'in:active,Active,inactive,Inactive',
+            'teacher_ids'   => 'nullable|array',
+            'teacher_ids.*' => 'integer|exists:teachers,id',
         ]);
+
+        $request->merge(['status' => ucfirst(strtolower($request->status ?? 'Active'))]);
 
         $subject = Subject::create([
             'subject_code' => $request->subject_code ?: $this->generateSubjectCode($request->name),
@@ -72,9 +86,16 @@ class SubjectController extends Controller
             'status'     => $request->status ?? 'Active',
         ]);
 
+        if ($request->has('teacher_ids')) {
+            $subject->teachers()->sync($request->teacher_ids ?? []);
+        }
+
+        $subject->load(['offerings', 'teachers.user']);
+        $subject->setAttribute('teacher_ids', $subject->teachers->pluck('id'));
+
         return response()->json([
             'success' => true,
-            'data'    => $subject->load('offerings'),
+            'data'    => $subject,
             'message' => 'Subject created successfully',
         ], 201);
     }
@@ -88,14 +109,27 @@ class SubjectController extends Controller
             'credits'    => 'nullable|integer|min:0|max:255',
             'description'=> 'nullable|string',
             'department_id' => 'nullable|integer|exists:departments,id',
-            'status'     => 'in:Active,Inactive',
+            'status'     => 'sometimes|in:active,Active,inactive,Inactive',
+            'teacher_ids'   => 'sometimes|array',
+            'teacher_ids.*' => 'integer|exists:teachers,id',
         ]);
+
+        if ($request->has('status')) {
+            $request->merge(['status' => ucfirst(strtolower($request->status))]);
+        }
 
         $subject->update($request->only('subject_code', 'name', 'credits', 'description', 'department_id', 'status'));
 
+        if ($request->has('teacher_ids')) {
+            $subject->teachers()->sync($request->teacher_ids ?? []);
+        }
+
+        $subject = $subject->fresh()->load(['offerings', 'teachers.user']);
+        $subject->setAttribute('teacher_ids', $subject->teachers->pluck('id'));
+
         return response()->json([
             'success' => true,
-            'data'    => $subject->fresh()->load('offerings'),
+            'data'    => $subject,
             'message' => 'Subject updated successfully',
         ]);
     }

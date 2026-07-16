@@ -15,9 +15,25 @@ class Score extends Model
         'remarks',
     ];
 
+    protected function casts(): array
+    {
+        return [
+            'total_weighted_score' => 'decimal:2',
+        ];
+    }
     protected $casts = [
         'total' => 'decimal:2',
     ];
+
+    public function getTotalAttribute(): ?float
+    {
+        return $this->attributes['total_weighted_score'] ?? null;
+    }
+
+    public function setTotalAttribute($value): void
+    {
+        $this->attributes['total_weighted_score'] = $value;
+    }
 
     public function enrollment(): BelongsTo
     {

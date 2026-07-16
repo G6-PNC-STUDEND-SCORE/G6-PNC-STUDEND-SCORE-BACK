@@ -10,9 +10,14 @@ class SubjectSeeder extends Seeder
     public function run(): void
     {
         $subjectNames = [
+            // Core subjects
             'Logic', 'Typing', 'Algorithms', 'OOP',
             'English', 'Design', 'Data Analysis',
             'PL', 'Vue.js', 'PHP', 'Laravel', 'Node.js',
+            // Term-specific subjects (also created by SubjectTermSeeder)
+            'BCU', 'MS Office', 'Web design', 'Git',
+            'English for IT', 'Database', 'Javascript',
+            'QA', 'Typescript',
         ];
 
         foreach ($subjectNames as $name) {
@@ -23,7 +28,6 @@ class SubjectSeeder extends Seeder
             if ($exists) continue;
 
             DB::table('subjects')->insert([
-                'subject_code' => strtoupper(substr(preg_replace('/[^A-Za-z0-9]/', '', $name), 0, 12)),
                 'name'       => $name,
                 'status'     => 'Active',
                 'created_at' => now(),

@@ -6,25 +6,18 @@ use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration
 {
+    /**
+     * Clean up any old/unused tables from previous schema versions.
+     * This migration runs last to ensure all new tables exist first.
+     */
     public function up(): void
     {
-        // Drop old role and avatar columns from users (moved to RBAC system)
-        if (Schema::hasColumn('users', 'role')) {
-            Schema::table('users', function (Blueprint $table) {
-                $table->dropColumn(['role', 'avatar']);
-            });
-        }
-
-        // Drop old tables that are being replaced
-        Schema::dropIfExists('grade_rules');
+        // Drop the old student_number_sequences table if it exists (replaced by student_id_number in students table)
+        Schema::dropIfExists('student_number_sequences');
     }
 
     public function down(): void
     {
-        // Restore old columns if rolled back
-        Schema::table('users', function (Blueprint $table) {
-            $table->enum('role', ['admin', 'teacher'])->after('email')->nullable();
-            $table->string('avatar')->nullable()->after('role');
-        });
+        // Nothing to restore - old tables are not coming back
     }
 };

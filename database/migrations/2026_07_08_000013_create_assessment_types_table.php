@@ -10,9 +10,10 @@ return new class extends Migration
     {
         Schema::create('assessment_types', function (Blueprint $table) {
             $table->id();
-            $table->string('code', 50)->unique()->comment('quiz, assignment, midterm, final');
+            $table->string('code', 50)->unique()->comment('quiz, assignment, midterm, final_exam');
             $table->string('name', 100);
-            $table->decimal('weight_percent', 5, 2)->default(0)->comment('e.g. 20.00');
+            $table->decimal('weight_percent', 5, 2)->default(0)->comment('e.g. 20.00 for Quiz=20%, 10.00 for Assignment, 30.00 for Midterm, 40.00 for Final');
+            $table->unsignedTinyInteger('max_count')->default(1)->comment('Maximum number of assessments of this type per subject (e.g. Quiz can have multiple, Midterm only 1)');
             $table->boolean('is_active')->default(true);
             $table->timestamps();
 
@@ -25,4 +26,3 @@ return new class extends Migration
         Schema::dropIfExists('assessment_types');
     }
 };
-
