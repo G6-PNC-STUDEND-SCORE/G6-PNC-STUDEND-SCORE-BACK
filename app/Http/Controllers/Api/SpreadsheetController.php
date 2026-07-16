@@ -9,18 +9,22 @@ use App\Models\ScoreDetail;
 use App\Models\Student;
 use App\Models\StudentNumberSequence;
 use App\Models\StudentSubjectEnrollment;
-use App\Models\GradeBoundary;
 use App\Models\Subject;
 use App\Models\SubjectOffering;
 use App\Models\Term;
 use App\Models\User;
+use App\Services\ScoreCalculationService;
+use App\Support\AssessmentTypeDefaults;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Http;
 
 class SpreadsheetController extends Controller
 {
+    public function __construct(
+        protected ScoreCalculationService $scoreCalculator
+    ) {}
+
     /**
      * GET /spreadsheet/subjects
      * List all subjects that have active offerings grouped by term.
@@ -214,7 +218,7 @@ class SpreadsheetController extends Controller
         ]);
 
         $detail->update(['mark' => $request->mark]);
-        $this->recalculateTotal($detail->score_id);
+        $this->scoreCalculator->recalculateById($detail->score_id);
 
         return response()->json(['success' => true, 'data' => $detail->fresh()]);
     }
@@ -225,8 +229,10 @@ class SpreadsheetController extends Controller
      */
     public function addDetail(Request $request, Subject $subject, Term $term): JsonResponse
     {
+        $allowedTypes = implode(',', AssessmentTypeDefaults::codes());
+
         $request->validate([
-            'type' => 'required|in:quiz,assignment,midterm,final,project',
+            'type' => "required|in:{$allowedTypes}",
             'label' => 'required|string|max:50',
             'max_score' => 'nullable|integer|min:1',
             'order_number' => 'nullable|integer',
@@ -236,14 +242,7 @@ class SpreadsheetController extends Controller
             ['code' => $request->type],
             [
                 'name' => ucfirst($request->type),
-                'weight_percent' => match ($request->type) {
-                    'quiz' => 10,
-                    'assignment' => 20,
-                    'project' => 20,
-                    'midterm' => 20,
-                    'final' => 30,
-                    default => 0,
-                },
+                'weight_percent' => AssessmentTypeDefaults::weightFor($request->type),
                 'is_active' => true,
             ]
         );
@@ -275,7 +274,7 @@ class SpreadsheetController extends Controller
                     'order_number' => $request->order_number ?? 0,
                     'mark' => null,
                 ]);
-                $this->recalculateTotal($score->id);
+                $this->scoreCalculator->recalculate($score);
             }
             DB::commit();
             return response()->json(['success' => true, 'message' => 'Column added.'], 201);
@@ -292,7 +291,7 @@ class SpreadsheetController extends Controller
     {
         $scoreId = $detail->score_id;
         $detail->delete();
-        if ($scoreId) $this->recalculateTotal($scoreId);
+        $this->scoreCalculator->recalculateById($scoreId);
         return response()->json(['success' => true, 'message' => 'Detail deleted.']);
     }
 
@@ -304,6 +303,85 @@ class SpreadsheetController extends Controller
         $request->validate(['label' => 'required|string|max:50']);
         $detail->update(['label' => $request->label]);
         return response()->json(['success' => true, 'data' => $detail->fresh()]);
+    }
+
+    /**
+     * PATCH /spreadsheet/subject/{subject}/term/{term}/details/change-type
+     * Reassign all matching columns from one assessment type to another.
+     */
+    public function changeColumnType(Request $request, Subject $subject, Term $term): JsonResponse
+    {
+        $allowedTypes = implode(',', AssessmentTypeDefaults::codes());
+
+        $request->validate([
+            'label' => 'required|string|max:50',
+            'old_type' => "required|string|in:{$allowedTypes}",
+            'new_type' => "required|string|in:{$allowedTypes}",
+        ]);
+
+        if ($request->old_type === $request->new_type) {
+            return response()->json([
+                'success' => true,
+                'data' => ['updated_count' => 0],
+                'message' => 'Column type updated successfully',
+            ]);
+        }
+
+        $offeringIds = SubjectOffering::where('subject_id', $subject->id)
+            ->where('term_id', $term->id)
+            ->where('status', 'active')
+            ->pluck('id');
+
+        if ($offeringIds->isEmpty()) {
+            return response()->json([
+                'success' => true,
+                'data' => ['updated_count' => 0],
+                'message' => 'Column type updated successfully',
+            ]);
+        }
+
+        $oldType = AssessmentType::where('code', $request->old_type)->first();
+        $newType = AssessmentType::firstOrCreate(
+            ['code' => $request->new_type],
+            [
+                'name' => ucfirst($request->new_type),
+                'weight_percent' => AssessmentTypeDefaults::weightFor($request->new_type),
+                'is_active' => true,
+            ]
+        );
+
+        if (!$oldType) {
+            return response()->json([
+                'success' => true,
+                'data' => ['updated_count' => 0],
+                'message' => 'Column type updated successfully',
+            ]);
+        }
+
+        $detailQuery = ScoreDetail::query()
+            ->where('label', $request->label)
+            ->where('assessment_type_id', $oldType->id)
+            ->whereHas('score.enrollment', function ($enrollmentQuery) use ($offeringIds) {
+                $enrollmentQuery->whereIn('subject_offering_id', $offeringIds);
+            });
+
+        $scoreIds = (clone $detailQuery)
+            ->distinct()
+            ->pluck('score_id');
+
+        $updatedCount = $detailQuery->update([
+            'assessment_type_id' => $newType->id,
+        ]);
+
+        foreach ($scoreIds as $scoreId) {
+            $this->scoreCalculator->recalculateById((int) $scoreId);
+        }
+
+        return response()->json([
+            'success' => true,
+            'data' => ['updated_count' => $updatedCount],
+            'message' => 'Column type updated successfully',
+        ]);
     }
 
     /**
@@ -348,7 +426,7 @@ class SpreadsheetController extends Controller
             }
             Score::whereNotNull('total')->chunk(100, function ($scores) {
                 foreach ($scores as $score) {
-                    $this->recalculateTotal($score->id);
+                    $this->scoreCalculator->recalculate($score);
                 }
             });
             DB::commit();
@@ -606,7 +684,7 @@ class SpreadsheetController extends Controller
                     $colIndex++;
                 }
 
-                $this->recalculateTotal($score->id);
+                $this->scoreCalculator->recalculate($score);
             }
             DB::commit();
             return response()->json(['success' => true, 'message' => 'Data imported successfully.']);
@@ -616,42 +694,4 @@ class SpreadsheetController extends Controller
         }
     }
 
-    private function recalculateTotal(?int $scoreId): void
-    {
-        if (!$scoreId) return;
-        $score = Score::find($scoreId);
-        if (!$score) return;
-
-        $details = ScoreDetail::with('assessmentType')
-            ->where('score_id', $scoreId)
-            ->whereNotNull('mark')
-            ->get();
-
-        if ($details->isEmpty()) {
-            $score->update(['total' => null, 'grade' => null]);
-            return;
-        }
-
-        $total = round($details
-            ->groupBy(fn($d) => $d->assessmentType?->code ?? 'unknown')
-            ->sum(function ($group) {
-                $assessmentType = $group->first()->assessmentType;
-                if (!$assessmentType) return 0;
-                $average = $this->calculateSimpleAverage($group);
-                return (($average ?? 0) * ((float) $assessmentType->weight_percent / 100));
-            }), 2);
-
-        $grade = GradeBoundary::getGrade($total) ?? 'F';
-        $score->update(['total' => $total, 'grade' => $grade]);
-    }
-
-    private function calculateSimpleAverage($details): ?float
-    {
-        $details = $details->filter(fn($d) => $d->mark !== null);
-        if ($details->isEmpty()) return null;
-        $totalMarks = $details->sum('mark');
-        $totalMaxScores = $details->filter(fn($d) => $d->max_score)->sum('max_score');
-        if ($totalMaxScores > 0) return ($totalMarks / $totalMaxScores) * 100;
-        return $details->avg('mark');
-    }
 }
