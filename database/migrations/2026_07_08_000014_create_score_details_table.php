@@ -18,7 +18,7 @@ return new class extends Migration
             $table->string('label', 100)->comment('e.g. Quiz 1, Quiz 2, Assignment 1, Midterm, Final Exam');
             $table->unsignedTinyInteger('sequence_number')->nullable()->comment('Sequence for ordering: 1, 2, 3...');
             $table->decimal('max_score', 5, 2)->nullable()->comment('Maximum possible score for this item');
-            $table->decimal('score', 5, 2)->nullable()->comment('Actual score achieved');
+            $table->decimal('mark', 5, 2)->nullable()->comment('Actual score achieved');
             $table->decimal('weight_percent', 5, 2)->nullable()->comment('Weight applied at detail level if different from assessment_type default');
             $table->text('remarks')->nullable();
             $table->timestamps();

@@ -17,6 +17,7 @@ return new class extends Migration
             $table->enum('gender', ['Male', 'Female', 'Other'])->nullable();
             $table->enum('status', ['active', 'graduated', 'dropped', 'suspended'])->default('active');
             $table->timestamps();
+            $table->softDeletes();
 
             $table->index('generation_id');
             $table->index('status');
