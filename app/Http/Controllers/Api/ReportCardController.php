@@ -4,7 +4,6 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\GradeBoundary;
-use App\Models\GradeBoundary;
 use App\Models\ReportCard;
 use App\Models\ReportCardDetail;
 use App\Models\Score;

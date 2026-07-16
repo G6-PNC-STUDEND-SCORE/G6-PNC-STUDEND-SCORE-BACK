@@ -7,7 +7,10 @@ use App\Models\AssessmentType;
 use App\Models\GradeBoundary;
 use App\Models\Score;
 use App\Models\ScoreDetail;
+use App\Models\Student;
+use App\Models\StudentNumberSequence;
 use App\Models\StudentSubjectEnrollment;
+use App\Models\User;
 use App\Models\Subject;
 use App\Models\SubjectOffering;
 use App\Models\Term;
@@ -165,9 +168,9 @@ class SpreadsheetController extends Controller
             return [
                 'enrollment_id' => $enr->id,
                 'score_id' => $enr->score?->id,
-                'student_id' => $enr->student->id,
-                'student_name' => $enr->student->user?->name ?? 'N/A',
-                'student_number' => $enr->student->studentNumberSequence?->student_number ?? '',
+                'student_id' => $enr->student?->id,
+                'student_name' => $enr->student?->user?->name ?? 'N/A',
+                'student_number' => $enr->student?->studentNumberSequence?->student_number ?? '',
                 'offering_id' => $enr->subject_offering_id,
                 'total' => $enr->score?->total !== null ? (float) $enr->score->total : null,
                 'grade' => $enr->score?->grade,
@@ -357,6 +360,108 @@ class SpreadsheetController extends Controller
     }
 
     /**
+     * PUT /spreadsheet/subject/{subject}/term/{term}/enrollments/{enrollment}
+     * Update student name and/or number on an enrollment.
+     */
+    public function updateEnrollment(Request $request, Subject $subject, Term $term, StudentSubjectEnrollment $enrollment): JsonResponse
+    {
+        $request->validate([
+            'student_name' => 'nullable|string|max:100',
+            'student_number' => 'nullable|string|max:50',
+        ]);
+
+        $student = $enrollment->student;
+
+        if ($request->filled('student_name')) {
+            if ($student) {
+                // Update existing user's name
+                $student->user->update(['name' => $request->student_name]);
+            } else {
+                // Create a new user + student for this enrollment
+                $email = 'student_' . uniqid() . '@example.com';
+                $studentRoleId = \App\Models\RBAC\Role::where('slug', 'student')->value('id');
+                $user = User::create([
+                    'name' => $request->student_name,
+                    'email' => $email,
+                    'password' => bcrypt('password'),
+                    'role_id' => $studentRoleId,
+                    'status' => 'active',
+                ]);
+                $student = Student::create([
+                    'user_id' => $user->id,
+                ]);
+                $enrollment->update(['student_id' => $student->id]);
+            }
+        }
+
+        if ($request->filled('student_number')) {
+            if ($student && $student->studentNumberSequence) {
+                $student->studentNumberSequence->update(['student_number' => $request->student_number]);
+            } elseif ($student) {
+                $seq = StudentNumberSequence::create([
+                    'student_number' => $request->student_number,
+                    'intake_year' => date('Y'),
+                ]);
+                $student->update(['student_number_sequence_id' => $seq->id]);
+            }
+        }
+
+        // Reload to get fresh data
+        $enrollment->load('student.user', 'student.studentNumberSequence');
+
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'student_name' => $enrollment->student?->user?->name ?? $request->student_name ?? '',
+                'student_number' => $enrollment->student?->studentNumberSequence?->student_number ?? $request->student_number ?? '',
+            ],
+        ]);
+    }
+
+    /**
+     * GET /spreadsheet/student-numbers
+     * Returns all student numbers for the autocomplete dropdown.
+     */
+    public function studentNumbers(): JsonResponse
+    {
+        $numbers = StudentNumberSequence::pluck('student_number');
+        return response()->json(['success' => true, 'data' => $numbers]);
+    }
+
+    /**
+     * POST /spreadsheet/subject/{subject}/term/{term}/enrollments
+     * Add a new student enrollment to this subject+term.
+     */
+    public function addEnrollment(Request $request, Subject $subject, Term $term): JsonResponse
+    {
+        $request->validate([
+            'student_id' => 'nullable|integer|exists:students,id',
+        ]);
+
+        // Find the first active offering for this subject+term
+        $offering = SubjectOffering::where('subject_id', $subject->id)
+            ->where('term_id', $term->id)
+            ->where('status', 'active')
+            ->first();
+
+        if (!$offering) {
+            return response()->json(['message' => 'No active offering found for this subject and term.'], 404);
+        }
+
+        // Create the enrollment
+        $enrollment = StudentSubjectEnrollment::create([
+            'student_id' => $request->student_id,
+            'subject_offering_id' => $offering->id,
+            'status' => 'enrolled',
+        ]);
+
+        // Create an empty score for the new enrollment
+        Score::create(['student_subject_enrollment_id' => $enrollment->id]);
+
+        return response()->json(['success' => true, 'data' => $enrollment], 201);
+    }
+
+    /**
      * POST /spreadsheet/subject/{subject}/term/{term}/sync-google
      * Exports data ready for Google Sheets integration.
      * This generates a CSV-compatible blob URL for direct Google Sheets opening.
@@ -405,8 +510,8 @@ class SpreadsheetController extends Controller
         $csv .= ",Total,Grade,Remarks\n";
 
         foreach ($enrollments as $enr) {
-            $name = str_replace(',', ' ', $enr->student->user?->name ?? 'N/A');
-            $studentNum = $enr->student->studentNumberSequence?->student_number ?? '';
+            $name = str_replace(',', ' ', $enr->student?->user?->name ?? 'N/A');
+            $studentNum = $enr->student?->studentNumberSequence?->student_number ?? '';
             $csv .= "{$name},{$studentNum}";
             if ($enr->score) {
                 $detailMap = [];
