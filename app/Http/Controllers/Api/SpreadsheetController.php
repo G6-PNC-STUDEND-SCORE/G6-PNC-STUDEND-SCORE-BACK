@@ -4,12 +4,12 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\AssessmentType;
-
 use App\Models\Score;
 use App\Models\ScoreDetail;
 use App\Models\Student;
 use App\Models\StudentNumberSequence;
 use App\Models\StudentSubjectEnrollment;
+use App\Models\GradeBoundary;
 use App\Models\Subject;
 use App\Models\SubjectOffering;
 use App\Models\Term;
@@ -85,7 +85,6 @@ class SpreadsheetController extends Controller
         ])->whereIn('subject_offering_id', $offeringIds)->get();
 
         // Collect all unique score-detail columns, deduplicated by label+type
-        // This ensures each column (e.g., "Quiz 1") appears only ONCE
         $columnsMap = collect();
         $enrollments->each(function ($enr) use ($columnsMap) {
             if ($enr->score && $enr->score->details) {
@@ -93,7 +92,7 @@ class SpreadsheetController extends Controller
                     $key = $d->label . '_' . ($d->assessmentType?->code ?? 'unknown');
                     if (!$columnsMap->has($key)) {
                         $columnsMap->put($key, [
-                            'id' => $d->id,  // Use first detail's ID as canonical
+                            'id' => $d->id,
                             'label' => $d->label,
                             'type' => $d->assessmentType?->code ?? 'unknown',
                             'order_number' => $d->order_number ?? 0,
@@ -107,6 +106,8 @@ class SpreadsheetController extends Controller
         $columns = $columnsMap->values()->sortBy('order_number')->values();
 
         // Ensure every enrollment has a Score + ScoreDetail for each column
+        // Fixes the bug where students enrolled after columns were created
+        // would have no detail_id, causing score updates to overwrite the wrong student
         $enrollments->each(function ($enr) use ($columns) {
             if (!$enr->score) {
                 $score = Score::create(['student_subject_enrollment_id' => $enr->id]);
@@ -135,6 +136,7 @@ class SpreadsheetController extends Controller
                 }
             }
 
+            // Reload details so rows below have accurate data
             $enr->score->load('details.assessmentType');
         });
 
@@ -414,6 +416,7 @@ class SpreadsheetController extends Controller
             if ($student) {
                 $student->user->update(['name' => $request->student_name]);
             } else {
+                // Create a new user + student for this enrollment
                 $email = 'student_' . uniqid() . '@example.com';
                 $studentRoleId = \App\Models\RBAC\Role::where('slug', 'student')->value('id');
                 $user = User::create([
@@ -442,6 +445,7 @@ class SpreadsheetController extends Controller
             }
         }
 
+        // Reload to get fresh data
         $enrollment->load('student.user', 'student.studentNumberSequence');
 
         return response()->json([
@@ -637,16 +641,7 @@ class SpreadsheetController extends Controller
                 return (($average ?? 0) * ((float) $assessmentType->weight_percent / 100));
             }), 2);
 
-        $grade = match (true) {
-            $total >= 90 => 'A',
-            $total >= 80 => 'B+',
-            $total >= 75 => 'B',
-            $total >= 70 => 'C+',
-            $total >= 60 => 'C',
-            $total >= 50 => 'D',
-            default => 'F',
-        };
-
+        $grade = GradeBoundary::getGrade($total) ?? 'F';
         $score->update(['total' => $total, 'grade' => $grade]);
     }
 
