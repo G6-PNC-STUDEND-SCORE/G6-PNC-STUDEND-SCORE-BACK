@@ -21,6 +21,9 @@ class Score extends Model
             'total_weighted_score' => 'decimal:2',
         ];
     }
+    protected $casts = [
+        'total' => 'decimal:2',
+    ];
 
     public function getTotalAttribute(): ?float
     {
