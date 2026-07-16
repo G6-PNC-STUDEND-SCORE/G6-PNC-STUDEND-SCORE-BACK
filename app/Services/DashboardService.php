@@ -254,7 +254,7 @@ class DashboardService
     protected function studentsByDept(array $f): array
     {
         $q = DB::table('students')
-            ->join('student_subject_enrollments', 'students.id', '=', 'student_subject_enrollments.student_id')
+            ->join('student_subject_enrollments', 'students.id', '=', 'student_subject_enrollments.student_class_history_id')
             ->join('subject_offerings', 'student_subject_enrollments.subject_offering_id', '=', 'subject_offerings.id')
             ->join('teachers', 'subject_offerings.teacher_id', '=', 'teachers.id')
             ->join('departments', 'teachers.department_id', '=', 'departments.id')
@@ -420,7 +420,7 @@ class DashboardService
     {
         $q = DB::table('scores')
             ->join('student_subject_enrollments','scores.student_subject_enrollment_id','=','student_subject_enrollments.id')
-            ->join('students','student_subject_enrollments.student_id','=','students.id')
+            ->join('students','student_subject_enrollments.student_class_history_id','=','students.id')
             ->join('users','students.user_id','=','users.id')
             ->select('users.name','students.id as student_id',DB::raw('ROUND(AVG(scores.total),2) as average_score'),DB::raw('MAX(scores.grade) as best_grade'),DB::raw('COUNT(scores.id) as score_count'))
             ->groupBy('users.name','students.id')->orderByDesc('average_score')->limit(10);

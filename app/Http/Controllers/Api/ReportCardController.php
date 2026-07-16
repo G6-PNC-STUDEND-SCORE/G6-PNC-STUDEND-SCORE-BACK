@@ -80,7 +80,7 @@ class ReportCardController extends Controller
 
                 $reportCard = ReportCard::updateOrCreate(
                     [
-                        'student_id' => $enrollment->student_id,
+                        'student_id' => $enrollment->student?->id,
                         'generation_id' => $generationId,
                         'term_id' => $termId,
                     ],

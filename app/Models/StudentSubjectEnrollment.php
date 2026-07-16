@@ -9,14 +9,14 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
 class StudentSubjectEnrollment extends Model
 {
     protected $fillable = [
-        'student_id',
+        'student_class_history_id',
         'subject_offering_id',
         'status',
     ];
 
     public function student(): BelongsTo
     {
-        return $this->belongsTo(Student::class);
+        return $this->belongsTo(Student::class, 'student_class_history_id');
     }
 
     public function subjectOffering(): BelongsTo

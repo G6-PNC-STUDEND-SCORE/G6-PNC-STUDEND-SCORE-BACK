@@ -21,7 +21,7 @@ class ScoreController extends Controller
 
         if ($request->student_id) {
             $query->whereHas('enrollment', function ($q) use ($request) {
-                $q->where('student_id', $request->student_id);
+                $q->where('student_class_history_id', $request->student_id);
             });
         }
         if ($request->subject_offering_id) {

@@ -11,16 +11,18 @@ return new class extends Migration
      */
     public function up(): void
     {
-        // Make student_id nullable so empty rows can be added
         Schema::table('student_subject_enrollments', function (Blueprint $table) {
-            $table->foreignId('student_id')->nullable()->change();
+            $table->unsignedBigInteger('student_class_history_id')->nullable()->change();
         });
     }
 
+    /**
+     * Reverse the migrations.
+     */
     public function down(): void
     {
         Schema::table('student_subject_enrollments', function (Blueprint $table) {
-            $table->foreignId('student_id')->nullable(false)->change();
+            $table->unsignedBigInteger('student_class_history_id')->nullable(false)->change();
         });
     }
 };

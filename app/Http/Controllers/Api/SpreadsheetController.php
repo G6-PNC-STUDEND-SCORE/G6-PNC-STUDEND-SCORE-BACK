@@ -389,7 +389,7 @@ class SpreadsheetController extends Controller
         }
 
         $enrollment = StudentSubjectEnrollment::create([
-            'student_id' => $request->student_id,
+            'student_class_history_id' => $request->student_id,
             'subject_offering_id' => $offering->id,
             'status' => 'enrolled',
         ]);
@@ -429,7 +429,7 @@ class SpreadsheetController extends Controller
                 $student = Student::create([
                     'user_id' => $user->id,
                 ]);
-                $enrollment->update(['student_id' => $student->id]);
+                $enrollment->update(['student_class_history_id' => $student->id]);
             }
         }
 

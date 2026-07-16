@@ -178,7 +178,7 @@ class StudentController extends Controller
 
         $scores = Score::with(['details', 'enrollment.subjectOffering.subject', 'enrollment.subjectOffering.term'])
             ->whereHas('enrollment', function ($q) use ($student) {
-                $q->where('student_id', $student->id);
+                $q->where('student_class_history_id', $student->id);
             })
             ->get();
 
