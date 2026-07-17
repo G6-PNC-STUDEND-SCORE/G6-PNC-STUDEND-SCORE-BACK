@@ -28,6 +28,11 @@ class DashboardController extends Controller
 
         $data = $this->dashboardService->getDashboardData($filters);
 
+        // Only admin and teacher users can see activity logs
+        if (!$request->user()?->isAdmin() && !$request->user()?->isTeacher()) {
+            $data['charts']['recent_user_activities'] = [];
+        }
+
         return response()->json([
             'success' => true,
             'data'    => $data,

@@ -10,6 +10,7 @@ class StudentSubjectEnrollment extends Model
 {
     protected $fillable = [
         'student_id',
+        'student_class_history_id',
         'subject_offering_id',
         'status',
     ];
@@ -17,6 +18,11 @@ class StudentSubjectEnrollment extends Model
     public function student(): BelongsTo
     {
         return $this->belongsTo(Student::class);
+    }
+
+    public function studentClassHistory(): BelongsTo
+    {
+        return $this->belongsTo(StudentClassHistory::class);
     }
 
     public function subjectOffering(): BelongsTo

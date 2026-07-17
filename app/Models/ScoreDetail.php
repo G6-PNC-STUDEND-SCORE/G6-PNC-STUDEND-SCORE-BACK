@@ -15,16 +15,39 @@ class ScoreDetail extends Model
         'score_id',
         'assessment_type_id',
         'label',
-        'order_number',
+        'sequence_number',
         'max_score',
-        'mark',
+        'score',
     ];
 
-    protected $casts = [
-        'mark' => 'decimal:2',
-        'max_score' => 'integer',
-        'order_number' => 'integer',
-    ];
+    protected function casts(): array
+    {
+        return [
+            'score' => 'decimal:2',
+            'max_score' => 'integer',
+            'sequence_number' => 'integer',
+        ];
+    }
+
+    public function getMarkAttribute(): ?float
+    {
+        return $this->attributes['score'] ?? null;
+    }
+
+    public function setMarkAttribute($value): void
+    {
+        $this->attributes['score'] = $value;
+    }
+
+    public function getOrderNumberAttribute(): ?int
+    {
+        return $this->attributes['sequence_number'] ?? 0;
+    }
+
+    public function setOrderNumberAttribute($value): void
+    {
+        $this->attributes['sequence_number'] = $value;
+    }
 
     public function score(): BelongsTo
     {

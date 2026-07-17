@@ -11,13 +11,15 @@ return new class extends Migration
         Schema::create('students', function (Blueprint $table) {
             $table->id();
             $table->foreignId('user_id')->unique()->constrained('users')->cascadeOnDelete();
-            $table->foreignId('student_number_sequence_id')->nullable()->constrained('student_number_sequences')->nullOnDelete();
+            $table->string('student_id_number', 50)->unique()->comment('PNC generated student ID, e.g. PNC2026-0001');
             $table->foreignId('generation_id')->nullable()->constrained('generations')->nullOnDelete();
-            $table->softDeletes();
+            $table->string('enrollment_number', 50)->nullable()->unique()->comment('Official enrollment/registration number');
+            $table->enum('gender', ['Male', 'Female', 'Other'])->nullable();
+            $table->enum('status', ['active', 'graduated', 'dropped', 'suspended'])->default('active');
             $table->timestamps();
 
-            $table->index('student_number_sequence_id');
             $table->index('generation_id');
+            $table->index('status');
         });
     }
 

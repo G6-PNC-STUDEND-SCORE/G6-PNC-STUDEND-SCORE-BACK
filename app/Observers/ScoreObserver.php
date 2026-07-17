@@ -13,7 +13,7 @@ class ScoreObserver
 
     public function created(Score $score): void
     {
-        $score->loadMissing('enrollment.student.studentNumberSequence', 'enrollment.subjectOffering.subject');
+        $score->loadMissing('enrollment.student', 'enrollment.subjectOffering.subject');
         $student = $score->enrollment?->student;
         $subject = $score->enrollment?->subjectOffering?->subject;
         $studentLabel = $student?->student_number ?? "ID:{$score->student_subject_enrollment_id}";
@@ -35,7 +35,7 @@ class ScoreObserver
             return;
         }
 
-        $score->loadMissing('enrollment.student.studentNumberSequence', 'enrollment.subjectOffering.subject');
+        $score->loadMissing('enrollment.student', 'enrollment.subjectOffering.subject');
         $student = $score->enrollment?->student;
         $subject = $score->enrollment?->subjectOffering?->subject;
         $studentLabel = $student?->student_number ?? "ID:{$score->student_subject_enrollment_id}";
@@ -53,7 +53,7 @@ class ScoreObserver
 
     public function deleted(Score $score): void
     {
-        $score->loadMissing('enrollment.student.studentNumberSequence', 'enrollment.subjectOffering.subject');
+        $score->loadMissing('enrollment.student', 'enrollment.subjectOffering.subject');
         $student = $score->enrollment?->student;
         $subject = $score->enrollment?->subjectOffering?->subject;
         $studentLabel = $student?->student_number ?? "ID:{$score->student_subject_enrollment_id}";

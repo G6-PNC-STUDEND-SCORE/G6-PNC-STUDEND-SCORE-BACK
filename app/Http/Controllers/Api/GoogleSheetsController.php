@@ -39,7 +39,6 @@ class GoogleSheetsController extends Controller
 
         $enrollments = StudentSubjectEnrollment::with([
             'student.user',
-            'student.studentNumberSequence',
             'score.details.assessmentType',
         ])->whereIn('subject_offering_id', $offeringIds)->get();
 
@@ -135,7 +134,7 @@ class GoogleSheetsController extends Controller
                     if (!$studentNumber) continue;
 
                     $enrollment = StudentSubjectEnrollment::whereIn('subject_offering_id', $offeringIds)
-                        ->whereHas('student.studentNumberSequence', fn($q) => $q->where('student_number', $studentNumber))
+                        ->whereHas('student', fn($q) => $q->where('student_id_number', $studentNumber))
                         ->first();
 
                     if (!$enrollment) continue;
@@ -205,7 +204,7 @@ class GoogleSheetsController extends Controller
 
         foreach ($enrollments as $enr) {
             $name = str_replace(',', ' ', $enr->student->user?->name ?? 'N/A');
-            $studentNum = $enr->student->studentNumberSequence?->student_number ?? '';
+            $studentNum = $enr->student->student_id_number ?? '';
             $csv .= "{$name},{$studentNum}";
 
             if ($enr->score) {

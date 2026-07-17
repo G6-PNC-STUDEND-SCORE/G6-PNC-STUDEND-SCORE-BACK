@@ -6,15 +6,12 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasManyThrough;
-use Illuminate\Database\Eloquent\SoftDeletes;
 
 class Student extends Model
 {
-    use SoftDeletes;
-
     protected $fillable = [
         'user_id',
-        'student_number_sequence_id',
+        'student_id_number',
         'generation_id',
     ];
 
@@ -25,12 +22,7 @@ class Student extends Model
 
     public function getStudentNumberAttribute(): ?string
     {
-        return $this->studentNumberSequence?->student_number;
-    }
-
-    public function studentNumberSequence(): BelongsTo
-    {
-        return $this->belongsTo(StudentNumberSequence::class);
+        return $this->student_id_number;
     }
 
     public function generation(): BelongsTo
@@ -71,5 +63,26 @@ class Student extends Model
     public function classHistories(): HasMany
     {
         return $this->hasMany(StudentClassHistory::class);
+    }
+
+    /**
+     * Virtual attribute: returns the active class (SchoolClass) from the
+     * most recent active class history, or null if unassigned.
+     */
+    public function getClassAttribute(): ?SchoolClass
+    {
+        // Check already-loaded classHistories relation first (N+1 safe)
+        if ($this->relationLoaded('classHistories')) {
+            $active = $this->classHistories->firstWhere('status', 'active');
+            return $active?->class;
+        }
+
+        // Fallback: query if relation not loaded
+        $history = $this->classHistories()
+            ->where('status', 'active')
+            ->with('class')
+            ->first();
+
+        return $history?->class;
     }
 }
