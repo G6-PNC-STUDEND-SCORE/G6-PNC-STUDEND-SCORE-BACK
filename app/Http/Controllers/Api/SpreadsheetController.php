@@ -29,7 +29,7 @@ class SpreadsheetController extends Controller
      */
     public function subjects(): JsonResponse
     {
-        $subjects = Subject::with(['terms', 'offerings' => function ($q) {
+        $subjects = Subject::with(['terms.academicYear', 'offerings' => function ($q) {
             $q->where('status', 'active')->with(['teacher.user', 'class']);
         }])->get();
 
@@ -45,6 +45,8 @@ class SpreadsheetController extends Controller
                 return [
                     'term_id' => $term->id,
                     'term_name' => $term->name,
+                    'academic_year_id' => $term->academic_year_id,
+                    'academic_year' => $term->academicYear?->year ?? $term->academicYear?->name ?? null,
                     'teachers' => $offerings->pluck('teacher.user.name')->filter()->unique()->values(),
                     'classes' => $offerings->pluck('class.name')->filter()->unique()->values(),
                     'offering_ids' => $offerings->pluck('id'),
@@ -87,6 +89,7 @@ class SpreadsheetController extends Controller
 
         $enrollments = StudentSubjectEnrollment::with([
             'student.user',
+            'subjectOffering.class',
             'score.details.assessmentType',
         ])->whereIn('subject_offering_id', $offeringIds)->get();
 
@@ -177,11 +180,12 @@ class SpreadsheetController extends Controller
                 'student_id' => $enr->student?->id,
                 'student_name' => $enr->student?->user?->name ?? '',
                 'student_number' => $enr->student?->student_id_number ?? '',
+                'class_name' => $enr->subjectOffering?->class?->name ?? '',
                 'offering_id' => $enr->subject_offering_id,
                 'total' => $enr->score?->total !== null ? (float) $enr->score->total : null,
                 'grade' => $enr->score?->grade,
                 'details' => $detailMarks,
-                'detail_ids' => $detailIdMap, // Maps canonical column ID -> actual detail ID for this student
+                'detail_ids' => $detailIdMap,
             ];
         });
 
@@ -219,7 +223,7 @@ class SpreadsheetController extends Controller
             'mark' => 'nullable|numeric|min:0|max:100',
         ]);
 
-        $detail->update(['mark' => $request->mark]);
+        $detail->update(['score' => $request->mark]);
         $this->recalculateTotal($detail->score_id);
 
         return response()->json(['success' => true, 'data' => $detail->fresh()]);
@@ -293,13 +297,40 @@ class SpreadsheetController extends Controller
 
     /**
      * DELETE /spreadsheet/subject/{subject}/term/{term}/details/{detail}
+     * Deletes ALL ScoreDetail records with the same label + assessment_type
+     * across all enrollments for this subject+term (not just one record).
      */
     public function deleteDetail(Subject $subject, Term $term, ScoreDetail $detail): JsonResponse
     {
-        $scoreId = $detail->score_id;
-        $detail->delete();
-        if ($scoreId) $this->recalculateTotal($scoreId);
-        return response()->json(['success' => true, 'message' => 'Detail deleted.']);
+        $label = $detail->label;
+        $assessmentTypeId = $detail->assessment_type_id;
+
+        // Get all offering IDs for this subject+term
+        $offeringIds = SubjectOffering::where('subject_id', $subject->id)
+            ->where('term_id', $term->id)
+            ->pluck('id');
+
+        // Get all score IDs for these offerings
+        $scoreIds = Score::whereIn('student_subject_enrollment_id', function ($q) use ($offeringIds) {
+            $q->select('id')->from('student_subject_enrollments')
+              ->whereIn('subject_offering_id', $offeringIds);
+        })->pluck('id');
+
+        // Delete ALL ScoreDetail records with the same label + assessment_type for these scores
+        $deletedCount = ScoreDetail::whereIn('score_id', $scoreIds)
+            ->where('label', $label)
+            ->where('assessment_type_id', $assessmentTypeId)
+            ->delete();
+
+        // Recalculate totals for all affected scores
+        foreach ($scoreIds as $scoreId) {
+            $this->recalculateTotal($scoreId);
+        }
+
+        return response()->json([
+            'success' => true,
+            'message' => "Column deleted ({$deletedCount} records removed).",
+        ]);
     }
 
     /**

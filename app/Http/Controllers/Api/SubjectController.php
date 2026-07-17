@@ -73,6 +73,8 @@ class SubjectController extends Controller
             'status'     => 'in:active,Active,inactive,Inactive',
             'teacher_ids'   => 'nullable|array',
             'teacher_ids.*' => 'integer|exists:teachers,id',
+            'class_ids'     => 'nullable|array',
+            'class_ids.*'   => 'integer|exists:classes,id',
         ]);
 
         $request->merge(['status' => ucfirst(strtolower($request->status ?? 'Active'))]);
@@ -88,6 +90,11 @@ class SubjectController extends Controller
 
         if ($request->has('teacher_ids')) {
             $subject->teachers()->sync($request->teacher_ids ?? []);
+        }
+
+        // Create SubjectOffering records for each class_id
+        if ($request->filled('class_ids')) {
+            $this->syncClassOfferings($subject, $request->class_ids);
         }
 
         $subject->load(['offerings', 'teachers.user']);
@@ -112,6 +119,8 @@ class SubjectController extends Controller
             'status'     => 'sometimes|in:active,Active,inactive,Inactive',
             'teacher_ids'   => 'sometimes|array',
             'teacher_ids.*' => 'integer|exists:teachers,id',
+            'class_ids'     => 'sometimes|array',
+            'class_ids.*'   => 'integer|exists:classes,id',
         ]);
 
         if ($request->has('status')) {
@@ -122,6 +131,11 @@ class SubjectController extends Controller
 
         if ($request->has('teacher_ids')) {
             $subject->teachers()->sync($request->teacher_ids ?? []);
+        }
+
+        // Sync class offerings
+        if ($request->has('class_ids')) {
+            $this->syncClassOfferings($subject, $request->class_ids ?? []);
         }
 
         $subject = $subject->fresh()->load(['offerings', 'teachers.user']);
@@ -171,5 +185,65 @@ class SubjectController extends Controller
         }
 
         return $code;
+    }
+
+    /**
+     * Sync SubjectOffering records for the given class IDs.
+     * Creates offerings for each class + active term combination.
+     * Removes offerings for classes no longer selected.
+     */
+    private function syncClassOfferings(Subject $subject, array $classIds): void
+    {
+        // Get the current active academic year
+        $academicYear = \App\Models\AcademicYear::where('is_current', true)->first()
+            ?? \App\Models\AcademicYear::orderByDesc('id')->first();
+
+        if (!$academicYear) {
+            return; // No academic year exists yet
+        }
+
+        // Get all active terms for this subject (via subject_term pivot)
+        $termIds = $subject->terms()->pluck('terms.id')->toArray();
+
+        // Get existing offerings for this subject
+        $existingOfferings = SubjectOffering::where('subject_id', $subject->id)->get();
+
+        // Build set of desired (class_id, term_id) pairs
+        $desired = [];
+        foreach ($classIds as $classId) {
+            foreach ($termIds as $termId) {
+                $desired[$classId . '_' . $termId] = true;
+            }
+        }
+
+        // Remove offerings for classes no longer selected (or terms no longer assigned)
+        foreach ($existingOfferings as $offering) {
+            $key = $offering->class_id . '_' . $offering->term_id;
+            if (!isset($desired[$key])) {
+                // Skip deletion if the offering has student enrollments (FK restrictOnDelete)
+                if (!$offering->enrollments()->exists()) {
+                    $offering->delete();
+                }
+            }
+        }
+
+        // Create missing offerings
+        foreach ($classIds as $classId) {
+            foreach ($termIds as $termId) {
+                $key = $classId . '_' . $termId;
+                $alreadyExists = $existingOfferings->contains(
+                    fn($o) => $o->class_id == $classId && $o->term_id == $termId
+                );
+                if (!$alreadyExists) {
+                    SubjectOffering::create([
+                        'subject_id' => $subject->id,
+                        'class_id'   => $classId,
+                        'term_id'    => $termId,
+                        'academic_year_id' => $academicYear->id,
+                        'status'     => 'active',
+                    ]);
+                }
+            }
+        }
     }
 }

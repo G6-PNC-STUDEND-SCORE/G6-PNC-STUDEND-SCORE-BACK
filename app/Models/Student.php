@@ -64,4 +64,25 @@ class Student extends Model
     {
         return $this->hasMany(StudentClassHistory::class);
     }
+
+    /**
+     * Virtual attribute: returns the active class (SchoolClass) from the
+     * most recent active class history, or null if unassigned.
+     */
+    public function getClassAttribute(): ?SchoolClass
+    {
+        // Check already-loaded classHistories relation first (N+1 safe)
+        if ($this->relationLoaded('classHistories')) {
+            $active = $this->classHistories->firstWhere('status', 'active');
+            return $active?->class;
+        }
+
+        // Fallback: query if relation not loaded
+        $history = $this->classHistories()
+            ->where('status', 'active')
+            ->with('class')
+            ->first();
+
+        return $history?->class;
+    }
 }

@@ -68,6 +68,7 @@ class StudentController extends Controller
             'gender'        => 'nullable|in:Male,Female',
             'status'        => 'nullable|in:active,inactive',
             'generation_id' => 'nullable|exists:generations,id',
+            'class_id'      => 'nullable|exists:classes,id',
         ]);
 
         DB::beginTransaction();
@@ -98,9 +99,23 @@ class StudentController extends Controller
                 'generation_id'      => $request->generation_id,
             ]);
 
+            // Create class history if class_id is provided
+            if ($request->filled('class_id')) {
+                $class = \App\Models\SchoolClass::find($request->class_id);
+                $generationId = $class?->generation_id ?? $request->generation_id;
+
+                StudentClassHistory::create([
+                    'student_id'    => $student->id,
+                    'class_id'      => $request->class_id,
+                    'generation_id' => $generationId,
+                    'start_date'    => now(),
+                    'status'        => 'active',
+                ]);
+            }
+
             DB::commit();
             return response()->json([
-                'student' => $student->load(['user', 'generation']),
+                'student' => $student->load(['user', 'generation', 'classHistories.class']),
             ], 201);
         } catch (\Exception $e) {
             DB::rollBack();
@@ -118,6 +133,7 @@ class StudentController extends Controller
             'password'      => 'nullable|string|min:6',
             'gender'        => 'nullable|in:Male,Female,Other',
             'status'        => 'nullable|in:active,inactive,suspended',
+            'class_id'      => 'nullable|exists:classes,id',
         ]);
 
         $student->update($request->only('generation_id'));
@@ -143,8 +159,28 @@ class StudentController extends Controller
             $student->user()->update($userData);
         }
 
+        // Handle class assignment if class_id is provided
+        if ($request->filled('class_id')) {
+            // Deactivate any active class history
+            StudentClassHistory::where('student_id', $student->id)
+                ->where('status', 'active')
+                ->update(['status' => 'transferred', 'end_date' => now()]);
+
+            $class = \App\Models\SchoolClass::find($request->class_id);
+            $generationId = $class?->generation_id ?? $student->generation_id;
+
+            // Create new active class history
+            StudentClassHistory::create([
+                'student_id'    => $student->id,
+                'class_id'      => $request->class_id,
+                'generation_id' => $generationId,
+                'start_date'    => now(),
+                'status'        => 'active',
+            ]);
+        }
+
         return response()->json([
-            'student' => $student->fresh()->load(['user', 'generation']),
+            'student' => $student->fresh()->load(['user', 'generation', 'classHistories.class']),
         ]);
     }
 
