@@ -10,6 +10,7 @@ return new class extends Migration
     {
         Schema::create('student_subject_enrollments', function (Blueprint $table) {
             $table->id();
+            $table->foreignId('student_id')->nullable()->constrained('students')->restrictOnDelete();
             $table->foreignId('student_class_history_id')->constrained('student_class_histories')->restrictOnDelete();
             $table->foreignId('subject_offering_id')->constrained('subject_offerings')->restrictOnDelete();
             $table->enum('status', ['enrolled', 'completed', 'dropped', 'failed'])->default('enrolled');

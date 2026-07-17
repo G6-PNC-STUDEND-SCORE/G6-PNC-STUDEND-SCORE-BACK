@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Score;
 use App\Models\Student;
 use App\Models\StudentClassHistory;
+use App\Models\StudentSubjectEnrollment;
 use App\Services\StudentNumberService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -23,7 +24,7 @@ class StudentController extends Controller
     {
         $user = $request->user();
 
-        $query = Student::with(['user', 'generation', 'studentNumberSequence', 'classHistories.class']);
+        $query = Student::with(['user', 'generation', 'classHistories.class']);
 
         if ($user->hasRole('student')) {
             $query->where('user_id', $user->id);
@@ -49,7 +50,6 @@ class StudentController extends Controller
             'student' => $student->load([
                 'user',
                 'generation',
-                'studentNumberSequence',
                 'classHistories.class',
                 'enrollments.subjectOffering.subject',
                 'enrollments.subjectOffering.term',
@@ -87,20 +87,20 @@ class StudentController extends Controller
                 $user->update(['role_id' => $studentRole->id]);
             }
 
-            // Create student number sequence
+            // Create student number
             $intakeYear = now()->year;
-            $sequence = $this->studentNumberService->createSequence($intakeYear);
+            $studentIdNumber = $this->studentNumberService->createSequence($intakeYear);
 
             // Create student record
             $student = Student::create([
-                'user_id'                    => $user->id,
-                'student_number_sequence_id' => $sequence->id,
-                'generation_id'              => $request->generation_id,
+                'user_id'           => $user->id,
+                'student_id_number'  => $studentIdNumber,
+                'generation_id'      => $request->generation_id,
             ]);
 
             DB::commit();
             return response()->json([
-                'student' => $student->load(['user', 'generation', 'studentNumberSequence']),
+                'student' => $student->load(['user', 'generation']),
             ], 201);
         } catch (\Exception $e) {
             DB::rollBack();
@@ -144,7 +144,7 @@ class StudentController extends Controller
         }
 
         return response()->json([
-            'student' => $student->fresh()->load(['user', 'generation', 'studentNumberSequence']),
+            'student' => $student->fresh()->load(['user', 'generation']),
         ]);
     }
 
@@ -153,47 +153,45 @@ class StudentController extends Controller
     {
         DB::beginTransaction();
         try {
-            $student->load(['enrollments.score', 'reportCards', 'transcripts']);
-
             $user = $student->user;
-            $studentNumberSequence = $student->studentNumberSequence;
 
-            // 1. Delete scores (score_details cascades via DB)
-            foreach ($student->enrollments as $enrollment) {
+            // 0. Get all class history IDs for this student
+            $classHistoryIds = $student->classHistories()->pluck('id');
+
+            // 1. Delete enrollments that reference these class histories (by class_history_id)
+            //    This catches enrollments where student_id might be null
+            $enrollmentsByHistory = StudentSubjectEnrollment::whereIn('student_class_history_id', $classHistoryIds)->get();
+            foreach ($enrollmentsByHistory as $enrollment) {
                 if ($enrollment->score) {
                     $enrollment->score->details()->delete();
                     $enrollment->score->delete();
                 }
+                $enrollment->delete();
             }
 
-            // 2. Delete enrollments
-            $student->enrollments()->delete();
+            // 2. Also delete any enrollments by student_id (in case student_id is set but class_history_id differs)
+            $enrollmentsByStudent = StudentSubjectEnrollment::where('student_id', $student->id)->get();
+            foreach ($enrollmentsByStudent as $enrollment) {
+                if ($enrollment->score) {
+                    $enrollment->score->details()->delete();
+                    $enrollment->score->delete();
+                }
+                $enrollment->delete();
+            }
 
-            // 3. Delete class histories
+            // 3. Delete class histories (safe now — no enrollments reference them)
             $student->classHistories()->delete();
 
-            // 4. Delete report card details & report cards
-            foreach ($student->reportCards as $reportCard) {
-                $reportCard->details()->delete();
-            }
+            // 4. Delete report cards (cascadeOnDelete handles report_card_details)
             $student->reportCards()->delete();
 
-            // 5. Delete transcript details & transcripts
-            foreach ($student->transcripts as $transcript) {
-                $transcript->details()->delete();
-            }
+            // 5. Delete transcripts (cascadeOnDelete handles transcript_details)
             $student->transcripts()->delete();
 
             // 6. Hard delete the student record
             $student->delete();
 
-            // 7. Delete student number sequence
-            if ($studentNumberSequence) {
-                $studentNumberSequence->delete();
-            }
-
-            // 8. Delete the associated user account
-            // (Student is already deleted in step 6, so the DB cascade on students.user_id is a no-op)
+            // 7. Delete the associated user account
             if ($user) {
                 $user->delete();
             }
@@ -203,6 +201,83 @@ class StudentController extends Controller
         } catch (\Exception $e) {
             DB::rollBack();
             return response()->json(['message' => 'Failed to delete student: ' . $e->getMessage()], 500);
+        }
+    }
+
+    /**
+     * POST /students/bulk-delete
+     * Delete multiple students at once.
+     */
+    public function bulkDelete(Request $request): JsonResponse
+    {
+        $request->validate([
+            'ids' => 'required|array',
+            'ids.*' => 'required|integer|exists:students,id',
+        ]);
+
+        $ids = $request->ids;
+        $deleted = 0;
+        $errors = [];
+
+        DB::beginTransaction();
+        try {
+            foreach ($ids as $id) {
+                $student = Student::find($id);
+                if (!$student) continue;
+
+                // Get class history IDs for this student
+                $classHistoryIds = StudentClassHistory::where('student_id', $student->id)->pluck('id');
+
+                // Delete enrollments referencing these class histories (by class_history_id)
+                $enrollmentsByHistory = StudentSubjectEnrollment::whereIn('student_class_history_id', $classHistoryIds)->get();
+                foreach ($enrollmentsByHistory as $enrollment) {
+                    if ($enrollment->score) {
+                        $enrollment->score->details()->delete();
+                        $enrollment->score->delete();
+                    }
+                    $enrollment->delete();
+                }
+
+                // Also delete any remaining enrollments by student_id
+                $enrollments = StudentSubjectEnrollment::where('student_id', $student->id)->get();
+                foreach ($enrollments as $enrollment) {
+                    if ($enrollment->score) {
+                        $enrollment->score->details()->delete();
+                        $enrollment->score->delete();
+                    }
+                    $enrollment->delete();
+                }
+
+                // Delete class histories (safe now)
+                StudentClassHistory::where('student_id', $student->id)->delete();
+
+                // Delete report cards (cascadeOnDelete handles report_card_details)
+                \App\Models\ReportCard::where('student_id', $student->id)->delete();
+
+                // Delete transcripts (cascadeOnDelete handles transcript_details)
+                \App\Models\Transcript::where('student_id', $student->id)->delete();
+
+                // Delete the student
+                $user = $student->user;
+                $student->delete();
+
+                // Delete the associated user
+                if ($user) {
+                    $user->delete();
+                }
+
+                $deleted++;
+            }
+
+            DB::commit();
+            return response()->json([
+                'success' => true,
+                'message' => "{$deleted} student(s) deleted successfully.",
+                'data' => ['deleted_count' => $deleted],
+            ]);
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return response()->json(['message' => 'Failed to delete students: ' . $e->getMessage()], 500);
         }
     }
 
@@ -229,7 +304,7 @@ class StudentController extends Controller
         ]);
 
         return response()->json([
-            'student' => $student->fresh()->load(['user', 'generation', 'studentNumberSequence', 'classHistories.class']),
+            'student' => $student->fresh()->load(['user', 'generation', 'classHistories.class']),
         ]);
     }
 
@@ -282,13 +357,13 @@ class StudentController extends Controller
                     $user->update(['role_id' => $studentRole->id]);
                 }
 
-                // Create student number sequence
-                $sequence = $this->studentNumberService->createSequence($intakeYear);
+                // Create student number
+                $studentIdNumber = $this->studentNumberService->createSequence($intakeYear);
 
                 // Create student record
                 $student = \App\Models\Student::create([
-                    'user_id'                    => $user->id,
-                    'student_number_sequence_id' => $sequence->id,
+                    'user_id'           => $user->id,
+                    'student_id_number'  => $studentIdNumber,
                 ]);
 
                 // Assign class if specified

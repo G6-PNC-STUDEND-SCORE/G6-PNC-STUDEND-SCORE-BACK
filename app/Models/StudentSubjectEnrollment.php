@@ -9,10 +9,16 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
 class StudentSubjectEnrollment extends Model
 {
     protected $fillable = [
+        'student_id',
         'student_class_history_id',
         'subject_offering_id',
         'status',
     ];
+
+    public function student(): BelongsTo
+    {
+        return $this->belongsTo(Student::class);
+    }
 
     public function studentClassHistory(): BelongsTo
     {

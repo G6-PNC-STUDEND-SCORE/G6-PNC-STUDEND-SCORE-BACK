@@ -4,12 +4,13 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\AssessmentType;
+use App\Models\GradeBoundary;
+use App\Models\RBAC\Role;
 use App\Models\Score;
 use App\Models\ScoreDetail;
 use App\Models\Student;
-use App\Models\StudentNumberSequence;
+use App\Models\StudentClassHistory;
 use App\Models\StudentSubjectEnrollment;
-use App\Models\GradeBoundary;
 use App\Models\Subject;
 use App\Models\SubjectOffering;
 use App\Models\Term;
@@ -86,7 +87,6 @@ class SpreadsheetController extends Controller
 
         $enrollments = StudentSubjectEnrollment::with([
             'student.user',
-            'student.studentNumberSequence',
             'score.details.assessmentType',
         ])->whereIn('subject_offering_id', $offeringIds)->get();
 
@@ -175,8 +175,8 @@ class SpreadsheetController extends Controller
                 'enrollment_id' => $enr->id,
                 'score_id' => $enr->score?->id,
                 'student_id' => $enr->student?->id,
-                'student_name' => $enr->student?->user?->name ?? 'N/A',
-                'student_number' => $enr->student?->studentNumberSequence?->student_number ?? '',
+                'student_name' => $enr->student?->user?->name ?? '',
+                'student_number' => $enr->student?->student_id_number ?? '',
                 'offering_id' => $enr->subject_offering_id,
                 'total' => $enr->score?->total !== null ? (float) $enr->score->total : null,
                 'grade' => $enr->score?->grade,
@@ -303,6 +303,72 @@ class SpreadsheetController extends Controller
     }
 
     /**
+     * PATCH /spreadsheet/subject/{subject}/term/{term}/details/change-type
+     * Change the assessment type of all columns with a given label.
+     */
+    public function changeColumnType(Request $request, Subject $subject, Term $term): JsonResponse
+    {
+        $request->validate([
+            'label' => 'required|string|max:50',
+            'old_type' => 'required|string|max:50',
+            'new_type' => 'required|string|max:50',
+        ]);
+
+        $offeringIds = SubjectOffering::where('subject_id', $subject->id)
+            ->where('term_id', $term->id)
+            ->where('status', 'active')
+            ->pluck('id');
+
+        $scoreIds = Score::whereIn('student_subject_enrollment_id', function ($q) use ($offeringIds) {
+            $q->select('id')->from('student_subject_enrollments')
+              ->whereIn('subject_offering_id', $offeringIds);
+        })->pluck('id');
+
+        $newAssessmentType = AssessmentType::firstOrCreate(
+            ['code' => $request->new_type],
+            [
+                'name' => ucfirst($request->new_type),
+                'weight_percent' => match ($request->new_type) {
+                    'quiz' => 10,
+                    'assignment' => 20,
+                    'project' => 20,
+                    'midterm' => 20,
+                    'final' => 30,
+                    default => 0,
+                },
+                'is_active' => true,
+            ]
+        );
+
+        DB::beginTransaction();
+        try {
+            $updatedCount = ScoreDetail::whereIn('score_id', $scoreIds)
+                ->where('label', $request->label)
+                ->whereHas('assessmentType', fn($q) => $q->where('code', $request->old_type))
+                ->update(['assessment_type_id' => $newAssessmentType->id]);
+
+            // Recalculate totals for affected scores
+            $affectedScoreIds = ScoreDetail::whereIn('score_id', $scoreIds)
+                ->where('label', $request->label)
+                ->pluck('score_id')
+                ->unique();
+
+            foreach ($affectedScoreIds as $sid) {
+                $this->recalculateTotal($sid);
+            }
+
+            DB::commit();
+            return response()->json([
+                'success' => true,
+                'data' => ['updated_count' => $updatedCount],
+            ]);
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return response()->json(['message' => $e->getMessage()], 500);
+        }
+    }
+
+    /**
      * PATCH /spreadsheet/subject/{subject}/term/{term}/details/{detail}/rename
      */
     public function renameDetail(Request $request, Subject $subject, Term $term, ScoreDetail $detail): JsonResponse
@@ -326,7 +392,7 @@ class SpreadsheetController extends Controller
         DB::beginTransaction();
         try {
             foreach ($request->columns as $col) {
-                ScoreDetail::where('id', $col['id'])->update(['order_number' => $col['order_number']]);
+                ScoreDetail::where('id', $col['id'])->update(['sequence_number' => $col['order_number']]);
             }
             DB::commit();
         } catch (\Exception $e) {
@@ -371,7 +437,7 @@ class SpreadsheetController extends Controller
      */
     public function studentNumbers(): JsonResponse
     {
-        $numbers = StudentNumberSequence::pluck('student_number');
+        $numbers = Student::whereNotNull('student_id_number')->pluck('student_id_number');
         return response()->json(['success' => true, 'data' => $numbers]);
     }
 
@@ -394,15 +460,107 @@ class SpreadsheetController extends Controller
             return response()->json(['message' => 'No active offering found for this subject and term.'], 404);
         }
 
-        $enrollment = StudentSubjectEnrollment::create([
-            'student_id' => $request->student_id,
-            'subject_offering_id' => $offering->id,
-            'status' => 'enrolled',
+        try {
+            return DB::transaction(function () use ($request, $offering) {
+                $student = null;
+
+                if ($request->filled('student_id')) {
+                    $student = Student::find($request->student_id);
+                } else {
+                    $studentRoleId = Role::where('slug', 'student')->value('id');
+                    $user = User::create([
+                        'name' => '',
+                        'email' => 'pending_student_' . uniqid() . '@example.com',
+                        'password' => bcrypt('password'),
+                        'role_id' => $studentRoleId,
+                        'status' => 'active',
+                    ]);
+
+                    // Generate a student ID number (must be inside transaction for lockForUpdate)
+                    $intakeYear = now()->year;
+                    $studentNumber = app(\App\Services\StudentNumberService::class)->createSequence($intakeYear);
+
+                    $student = Student::create([
+                        'user_id' => $user->id,
+                        'student_id_number' => $studentNumber,
+                    ]);
+                }
+
+                $studentClassHistory = $this->getOrCreateStudentClassHistory($offering, $student);
+
+                $enrollment = StudentSubjectEnrollment::create([
+                    'student_id' => $student->id,
+                    'student_class_history_id' => $studentClassHistory->id,
+                    'subject_offering_id' => $offering->id,
+                    'status' => 'enrolled',
+                ]);
+
+                Score::create(['student_subject_enrollment_id' => $enrollment->id]);
+
+                return response()->json([
+                    'success' => true,
+                    'data' => [
+                        'id' => $enrollment->id,
+                        'student_id' => $student->id,
+                        'student_number' => $student->student_id_number ?? '',
+                    ],
+                ], 201);
+            });
+        } catch (\Exception $e) {
+            return response()->json(['message' => $e->getMessage()], 500);
+        }
+    }
+
+    /**
+     * DELETE /spreadsheet/subject/{subject}/term/{term}/enrollments/{enrollment}
+     * Delete a student enrollment row and its associated score.
+     */
+    public function deleteEnrollment(Subject $subject, Term $term, StudentSubjectEnrollment $enrollment): JsonResponse
+    {
+        DB::beginTransaction();
+        try {
+            // Delete score details first
+            if ($enrollment->score) {
+                $enrollment->score->details()->delete();
+                $enrollment->score->delete();
+            }
+
+            // Delete the enrollment itself
+            $enrollment->delete();
+
+            DB::commit();
+            return response()->json(['success' => true, 'message' => 'Enrollment deleted.']);
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return response()->json(['message' => $e->getMessage()], 500);
+        }
+    }
+
+    private function getOrCreateStudentClassHistory(SubjectOffering $offering, Student $student): StudentClassHistory
+    {
+        $generationId = $offering->generation_id ?? $student->generation_id;
+
+        $history = StudentClassHistory::where('student_id', $student->id)
+            ->where('class_id', $offering->class_id)
+            ->where('generation_id', $generationId)
+            ->where('status', 'active')
+            ->first();
+
+        if ($history) {
+            return $history;
+        }
+
+        StudentClassHistory::where('student_id', $student->id)
+            ->where('status', 'active')
+            ->update(['status' => 'transferred', 'end_date' => now()]);
+
+        return StudentClassHistory::create([
+            'student_id' => $student->id,
+            'class_id' => $offering->class_id,
+            'generation_id' => $generationId,
+            'start_date' => now(),
+            'status' => 'active',
         ]);
-
-        Score::create(['student_subject_enrollment_id' => $enrollment->id]);
-
-        return response()->json(['success' => true, 'data' => $enrollment], 201);
     }
 
     /**
@@ -416,51 +574,54 @@ class SpreadsheetController extends Controller
             'student_number' => 'nullable|string|max:50',
         ]);
 
-        $student = $enrollment->student;
+        try {
+            return DB::transaction(function () use ($request, $enrollment) {
+                $student = $enrollment->student;
 
-        if ($request->filled('student_name')) {
-            if ($student) {
-                $student->user->update(['name' => $request->student_name]);
-            } else {
-                // Create a new user + student for this enrollment
-                $email = 'student_' . uniqid() . '@example.com';
-                $studentRoleId = \App\Models\RBAC\Role::where('slug', 'student')->value('id');
-                $user = User::create([
-                    'name' => $request->student_name,
-                    'email' => $email,
-                    'password' => bcrypt('password'),
-                    'role_id' => $studentRoleId,
-                    'status' => 'active',
+                if ($request->filled('student_name')) {
+                    if ($student) {
+                        $student->user->update(['name' => $request->student_name]);
+                    } else {
+                        // Create a new user + student for this enrollment
+                        $email = 'student_' . uniqid() . '@example.com';
+                        $studentRoleId = \App\Models\RBAC\Role::where('slug', 'student')->value('id');
+                        $user = User::create([
+                            'name' => $request->student_name,
+                            'email' => $email,
+                            'password' => bcrypt('password'),
+                            'role_id' => $studentRoleId,
+                            'status' => 'active',
+                        ]);
+                        $intakeYear = now()->year;
+                        $studentNumber = app(\App\Services\StudentNumberService::class)->createSequence($intakeYear);
+                        $student = Student::create([
+                            'user_id' => $user->id,
+                            'student_id_number' => $studentNumber,
+                        ]);
+                        $enrollment->update(['student_id' => $student->id]);
+                    }
+                }
+
+                if ($request->filled('student_number')) {
+                    if ($student) {
+                        $student->update(['student_id_number' => $request->student_number]);
+                    }
+                }
+
+                // Reload to get fresh data
+                $enrollment->load('student.user');
+
+                return response()->json([
+                    'success' => true,
+                    'data' => [
+                        'student_name' => $enrollment->student?->user?->name ?? $request->student_name ?? '',
+                        'student_number' => $enrollment->student?->student_id_number ?? $request->student_number ?? '',
+                    ],
                 ]);
-                $student = Student::create([
-                    'user_id' => $user->id,
-                ]);
-                $enrollment->update(['student_id' => $student->id]);
-            }
+            });
+        } catch (\Exception $e) {
+            return response()->json(['message' => $e->getMessage()], 500);
         }
-
-        if ($request->filled('student_number')) {
-            if ($student && $student->studentNumberSequence) {
-                $student->studentNumberSequence->update(['student_number' => $request->student_number]);
-            } elseif ($student) {
-                $seq = StudentNumberSequence::create([
-                    'student_number' => $request->student_number,
-                    'intake_year' => date('Y'),
-                ]);
-                $student->update(['student_number_sequence_id' => $seq->id]);
-            }
-        }
-
-        // Reload to get fresh data
-        $enrollment->load('student.user', 'student.studentNumberSequence');
-
-        return response()->json([
-            'success' => true,
-            'data' => [
-                'student_name' => $enrollment->student?->user?->name ?? $request->student_name ?? '',
-                'student_number' => $enrollment->student?->studentNumberSequence?->student_number ?? $request->student_number ?? '',
-            ],
-        ]);
     }
 
     /**
@@ -477,7 +638,6 @@ class SpreadsheetController extends Controller
 
         $enrollments = StudentSubjectEnrollment::with([
             'student.user',
-            'student.studentNumberSequence',
             'score.details.assessmentType',
         ])->whereIn('subject_offering_id', $offeringIds)->get();
 
@@ -513,7 +673,7 @@ class SpreadsheetController extends Controller
 
         foreach ($enrollments as $enr) {
             $name = str_replace(',', ' ', $enr->student?->user?->name ?? 'N/A');
-            $studentNum = $enr->student?->studentNumberSequence?->student_number ?? '';
+            $studentNum = $enr->student?->student_id_number ?? '';
             $csv .= "{$name},{$studentNum}";
             if ($enr->score) {
                 $detailMap = [];
@@ -554,6 +714,7 @@ class SpreadsheetController extends Controller
     /**
      * POST /spreadsheet/subject/{subject}/term/{term}/import-google
      * Import data back from Google Sheets (accepts CSV content).
+     * Now saves student names AND correctly maps columns by label+type.
      */
     public function importFromGoogleSheets(Request $request, Subject $subject, Term $term): JsonResponse
     {
@@ -567,7 +728,30 @@ class SpreadsheetController extends Controller
         }
 
         $header = str_getcsv($lines[0]);
-        // Header format: Student Name, Student ID, col1 (type), col2 (type), ..., Total, Grade, Remarks
+        // Header format: Student Name, Student ID, label1 (type1), label2 (type2), ..., Total, Grade, Remarks
+        // Parse header to build a map of csv_column_index => [label, type]
+        $csvColumnMap = []; // index => ['label' => ..., 'type' => ...]
+        for ($h = 2; $h < count($header) - 3; $h++) {
+            $colHeader = trim($header[$h]);
+            // Parse "Label (type)" format
+            if (preg_match('/^(.+)\s*\(([^)]+)\)$/', $colHeader, $matches)) {
+                $csvColumnMap[$h] = [
+                    'label' => trim($matches[1]),
+                    'type' => strtolower(trim($matches[2])),
+                ];
+            } else {
+                // Fallback: use the raw header as the label
+                $csvColumnMap[$h] = [
+                    'label' => $colHeader,
+                    'type' => 'unknown',
+                ];
+            }
+        }
+
+        $offeringIds = SubjectOffering::where('subject_id', $subject->id)
+            ->where('term_id', $term->id)
+            ->where('status', 'active')
+            ->pluck('id');
 
         DB::beginTransaction();
         try {
@@ -577,15 +761,62 @@ class SpreadsheetController extends Controller
                 $data = str_getcsv($line);
                 if (count($data) < 2) continue;
 
-                $studentName = $data[0];
-                $studentNumber = $data[1] ?? '';
+                $studentName = trim($data[0] ?? '');
+                $studentNumber = trim($data[1] ?? '');
 
-                // Find the enrollment by student number
-                $enrollment = StudentSubjectEnrollment::whereIn('subject_offering_id', $offeringIds = SubjectOffering::where('subject_id', $subject->id)->where('term_id', $term->id)->pluck('id'))
-                    ->whereHas('student.studentNumberSequence', fn($q) => $q->where('student_number', $studentNumber))
-                    ->first();
+                // Find the enrollment by student number first, then by name
+                $enrollment = null;
+                if ($studentNumber) {
+                    $enrollment = StudentSubjectEnrollment::whereIn('subject_offering_id', $offeringIds)
+                        ->whereHas('student', fn($q) => $q->where('student_id_number', $studentNumber))
+                        ->first();
+                }
 
-                if (!$enrollment) continue;
+                // Fallback: try to find by student name
+                if (!$enrollment && $studentName) {
+                    $enrollment = StudentSubjectEnrollment::whereIn('subject_offering_id', $offeringIds)
+                        ->whereHas('student.user', fn($q) => $q->where('name', $studentName))
+                        ->first();
+                }
+
+                if (!$enrollment) {
+                    // Student not found — create a new one!
+                    $offering = SubjectOffering::whereIn('id', $offeringIds)->first();
+                    if (!$offering) continue;
+
+                    $studentRoleId = Role::where('slug', 'student')->value('id');
+                    $user = User::create([
+                        'name' => $studentName ?: 'Imported Student',
+                        'email' => 'imported_' . uniqid() . '@example.com',
+                        'password' => bcrypt('password'),
+                        'role_id' => $studentRoleId,
+                        'status' => 'active',
+                    ]);
+
+                    $intakeYear = now()->year;
+                    $studentNum = app(\App\Services\StudentNumberService::class)->createSequence($intakeYear);
+
+                    $student = Student::create([
+                        'user_id' => $user->id,
+                        'student_id_number' => $studentNum,
+                    ]);
+
+                    $studentClassHistory = $this->getOrCreateStudentClassHistory($offering, $student);
+
+                    $enrollment = StudentSubjectEnrollment::create([
+                        'student_id' => $student->id,
+                        'student_class_history_id' => $studentClassHistory->id,
+                        'subject_offering_id' => $offering->id,
+                        'status' => 'enrolled',
+                    ]);
+
+                    $score = Score::create(['student_subject_enrollment_id' => $enrollment->id]);
+                }
+
+                // Save the student name from CSV to the database
+                if ($studentName && $enrollment->student && $enrollment->student->user) {
+                    $enrollment->student->user->update(['name' => $studentName]);
+                }
 
                 // Ensure score exists
                 if (!$enrollment->score) {
@@ -594,28 +825,198 @@ class SpreadsheetController extends Controller
                     $score = $enrollment->score;
                 }
 
-                // Parse marks from columns (skip first 2: name, id; skip last 3: total, grade, remarks)
-                $colIndex = 0;
-                $details = ScoreDetail::with('assessmentType')
+                // Build a lookup map of label_type => detail_id for this student's score
+                // This matches the same approach used in bySubjectAndTerm()
+                $detailMap = [];
+                $existingDetails = ScoreDetail::with('assessmentType')
                     ->where('score_id', $score->id)
-                    ->orderBy('id')
                     ->get();
 
-                foreach ($details as $detail) {
-                    $csvColIndex = 2 + $colIndex;
-                    if (isset($data[$csvColIndex]) && $data[$csvColIndex] !== '') {
-                        $mark = (float) $data[$csvColIndex];
+                foreach ($existingDetails as $d) {
+                    $key = $d->label . '_' . ($d->assessmentType?->code ?? 'unknown');
+                    $detailMap[$key] = $d;
+                }
+
+                // Map CSV columns to ScoreDetails by label+type
+                foreach ($csvColumnMap as $csvIdx => $colInfo) {
+                    if (!isset($data[$csvIdx]) || $data[$csvIdx] === '') continue;
+
+                    $lookupKey = $colInfo['label'] . '_' . $colInfo['type'];
+                    $detail = $detailMap[$lookupKey] ?? null;
+
+                    if ($detail) {
+                        $mark = (float) $data[$csvIdx];
                         if ($mark >= 0 && $mark <= 100) {
                             $detail->update(['mark' => $mark]);
                         }
                     }
-                    $colIndex++;
                 }
 
                 $this->recalculateTotal($score->id);
             }
             DB::commit();
             return response()->json(['success' => true, 'message' => 'Data imported successfully.']);
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return response()->json(['message' => $e->getMessage()], 500);
+        }
+    }
+
+    /**
+     * POST /spreadsheet/subject/{subject}/term/{term}/import-file
+     * Import a CSV, Excel, or PDF file with student names and scores.
+     * The frontend parses Excel/PDF and sends structured JSON data.
+     * For CSV files, the backend parses them directly.
+     */
+    public function importFile(Request $request, Subject $subject, Term $term): JsonResponse
+    {
+        if ($request->hasFile('file')) {
+            $file = $request->file('file');
+            $extension = strtolower($file->getClientOriginalExtension());
+
+            if ($extension === 'csv') {
+                $content = file_get_contents($file->getRealPath());
+                // Reuse the CSV import logic
+                $request->merge(['csv_content' => $content]);
+                return $this->importFromGoogleSheets($request, $subject, $term);
+            }
+
+            return response()->json([
+                'message' => 'Unsupported file format. Please upload a CSV file, or use the Score Sheet import for Excel/PDF files.',
+            ], 400);
+        }
+
+        // Accept parsed JSON data from frontend (for Excel/PDF that is parsed client-side)
+        $request->validate([
+            'rows' => 'required|array|min:1',
+            'rows.*.student_name' => 'required|string|max:255',
+            'rows.*.student_number' => 'nullable|string|max:50',
+            'rows.*.marks' => 'nullable|array',
+        ]);
+
+        $rows = $request->rows;
+        $offeringIds = SubjectOffering::where('subject_id', $subject->id)
+            ->where('term_id', $term->id)
+            ->where('status', 'active')
+            ->pluck('id');
+
+        DB::beginTransaction();
+        try {
+            // Get the existing columns for this subject+term
+            $existingEnrollments = StudentSubjectEnrollment::with([
+                'student.user',
+                'score.details.assessmentType',
+            ])->whereIn('subject_offering_id', $offeringIds)->get();
+
+            $columnsMap = collect();
+            $existingEnrollments->each(function ($enr) use ($columnsMap) {
+                if ($enr->score && $enr->score->details) {
+                    foreach ($enr->score->details as $d) {
+                        $key = $d->label . '_' . ($d->assessmentType?->code ?? 'unknown');
+                        if (!$columnsMap->has($key)) {
+                            $columnsMap->put($key, [
+                                'id' => $d->id,
+                                'label' => $d->label,
+                                'type' => $d->assessmentType?->code ?? 'unknown',
+                            ]);
+                        }
+                    }
+                }
+            });
+
+            $importedCount = 0;
+            foreach ($rows as $rowData) {
+                $studentName = trim($rowData['student_name'] ?? '');
+                $studentNumber = trim($rowData['student_number'] ?? '');
+                $marks = $rowData['marks'] ?? [];
+
+                // Find existing enrollment or create new one
+                $enrollment = null;
+                if ($studentNumber) {
+                    $enrollment = StudentSubjectEnrollment::whereIn('subject_offering_id', $offeringIds)
+                        ->whereHas('student', fn($q) => $q->where('student_id_number', $studentNumber))
+                        ->first();
+                }
+
+                if (!$enrollment && $studentName) {
+                    $enrollment = StudentSubjectEnrollment::whereIn('subject_offering_id', $offeringIds)
+                        ->whereHas('student.user', fn($q) => $q->where('name', $studentName))
+                        ->first();
+                }
+
+                if (!$enrollment) {
+                    $offering = SubjectOffering::whereIn('id', $offeringIds)->first();
+                    if (!$offering) continue;
+
+                    $studentRoleId = Role::where('slug', 'student')->value('id');
+                    $user = User::create([
+                        'name' => $studentName ?: 'Imported Student',
+                        'email' => 'imported_' . uniqid() . '@example.com',
+                        'password' => bcrypt('password'),
+                        'role_id' => $studentRoleId,
+                        'status' => 'active',
+                    ]);
+
+                    $studentNum = app(\App\Services\StudentNumberService::class)->createSequence(now()->year);
+                    $student = Student::create([
+                        'user_id' => $user->id,
+                        'student_id_number' => $studentNum,
+                    ]);
+
+                    $studentClassHistory = $this->getOrCreateStudentClassHistory($offering, $student);
+                    $enrollment = StudentSubjectEnrollment::create([
+                        'student_id' => $student->id,
+                        'student_class_history_id' => $studentClassHistory->id,
+                        'subject_offering_id' => $offering->id,
+                        'status' => 'enrolled',
+                    ]);
+                    Score::create(['student_subject_enrollment_id' => $enrollment->id]);
+                }
+
+                // Save student name
+                if ($studentName && $enrollment->student && $enrollment->student->user) {
+                    $enrollment->student->user->update(['name' => $studentName]);
+                }
+
+                // Ensure score exists
+                if (!$enrollment->score) {
+                    $score = Score::create(['student_subject_enrollment_id' => $enrollment->id]);
+                } else {
+                    $score = $enrollment->score;
+                }
+
+                // Map marks to ScoreDetails by label_type key
+                $detailMap = [];
+                $existingDetails = ScoreDetail::with('assessmentType')
+                    ->where('score_id', $score->id)
+                    ->get();
+
+                foreach ($existingDetails as $d) {
+                    $key = $d->label . '_' . ($d->assessmentType?->code ?? 'unknown');
+                    $detailMap[$key] = $d;
+                }
+
+                foreach ($marks as $labelType => $markValue) {
+                    // labelType is in format "Label_type" (e.g., "Quiz 1_quiz")
+                    $detail = $detailMap[$labelType] ?? null;
+                    if ($detail) {
+                        $mark = (float) $markValue;
+                        if ($mark >= 0 && $mark <= 100) {
+                            $detail->update(['mark' => $mark]);
+                        }
+                    }
+                }
+
+                $this->recalculateTotal($score->id);
+                $importedCount++;
+            }
+
+            DB::commit();
+            return response()->json([
+                'success' => true,
+                'message' => "Successfully imported {$importedCount} student(s).",
+                'data' => ['imported_count' => $importedCount],
+            ]);
         } catch (\Exception $e) {
             DB::rollBack();
             return response()->json(['message' => $e->getMessage()], 500);
@@ -630,7 +1031,7 @@ class SpreadsheetController extends Controller
 
         $details = ScoreDetail::with('assessmentType')
             ->where('score_id', $scoreId)
-            ->whereNotNull('mark')
+            ->whereNotNull('score')
             ->get();
 
         if ($details->isEmpty()) {

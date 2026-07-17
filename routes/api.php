@@ -90,6 +90,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::put('/students/{student}/assign-class', [StudentController::class, 'assignClass'])->middleware('permission:update-students');
     Route::delete('/students/{student}', [StudentController::class, 'destroy'])->middleware('permission:delete-students');
     Route::post('/students/import', [StudentController::class, 'importBulk'])->middleware('permission:create-students');
+    Route::post('/students/bulk-delete', [StudentController::class, 'bulkDelete'])->middleware('permission:delete-students');
 
     // ── Classes ──────────────────────────────────────────────────
     Route::get('/classes', [ClassController::class, 'index'])->middleware('permission:view-classes');
@@ -151,7 +152,6 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/subject-offerings/{offering}/enrollments', function (\App\Models\SubjectOffering $offering) {
         $enrollments = \App\Models\StudentSubjectEnrollment::with([
             'student.user',
-            'student.studentNumberSequence',
             'score.details.assessmentType',
         ])->where('subject_offering_id', $offering->id)->get();
         return response()->json(['success' => true, 'data' => $enrollments]);
@@ -185,13 +185,16 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::patch('/spreadsheet/subject/{subject}/term/{term}/details/{detail}/rename', [\App\Http\Controllers\Api\SpreadsheetController::class, 'renameDetail'])->middleware('permission:update-scores');
     Route::post('/spreadsheet/subject/{subject}/term/{term}/details', [\App\Http\Controllers\Api\SpreadsheetController::class, 'addDetail'])->middleware('permission:create-scores');
     Route::delete('/spreadsheet/subject/{subject}/term/{term}/details/{detail}', [\App\Http\Controllers\Api\SpreadsheetController::class, 'deleteDetail'])->middleware('permission:delete-scores');
+    Route::patch('/spreadsheet/subject/{subject}/term/{term}/details/change-type', [\App\Http\Controllers\Api\SpreadsheetController::class, 'changeColumnType'])->middleware('permission:update-scores');
     Route::post('/spreadsheet/subject/{subject}/term/{term}/reorder', [\App\Http\Controllers\Api\SpreadsheetController::class, 'reorderColumns'])->middleware('permission:update-scores');
     Route::post('/spreadsheet/subject/{subject}/term/{term}/sync-google', [\App\Http\Controllers\Api\SpreadsheetController::class, 'syncToGoogleSheets'])->middleware('permission:view-scores');
     Route::post('/spreadsheet/subject/{subject}/term/{term}/import-google', [\App\Http\Controllers\Api\SpreadsheetController::class, 'importFromGoogleSheets'])->middleware('permission:create-scores');
+    Route::post('/spreadsheet/subject/{subject}/term/{term}/import-file', [\App\Http\Controllers\Api\SpreadsheetController::class, 'importFile'])->middleware('permission:create-scores');
     Route::put('/spreadsheet/weights', [\App\Http\Controllers\Api\SpreadsheetController::class, 'updateWeights'])->middleware('permission:update-scores');
     Route::get('/spreadsheet/student-numbers', [\App\Http\Controllers\Api\SpreadsheetController::class, 'studentNumbers'])->middleware('permission:view-scores');
     Route::post('/spreadsheet/subject/{subject}/term/{term}/enrollments', [\App\Http\Controllers\Api\SpreadsheetController::class, 'addEnrollment'])->middleware('permission:create-scores');
     Route::put('/spreadsheet/subject/{subject}/term/{term}/enrollments/{enrollment}', [\App\Http\Controllers\Api\SpreadsheetController::class, 'updateEnrollment'])->middleware('permission:update-scores');
+    Route::delete('/spreadsheet/subject/{subject}/term/{term}/enrollments/{enrollment}', [\App\Http\Controllers\Api\SpreadsheetController::class, 'deleteEnrollment'])->middleware('permission:delete-scores');
 
     // ── Grade Boundaries ─────────────────────────────────────────
     Route::get('/grade-boundaries', [\App\Http\Controllers\Api\GradeBoundaryController::class, 'index']);

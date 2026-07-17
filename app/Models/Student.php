@@ -11,7 +11,7 @@ class Student extends Model
 {
     protected $fillable = [
         'user_id',
-        'student_number_sequence_id',
+        'student_id_number',
         'generation_id',
     ];
 
@@ -22,12 +22,7 @@ class Student extends Model
 
     public function getStudentNumberAttribute(): ?string
     {
-        return $this->studentNumberSequence?->student_number;
-    }
-
-    public function studentNumberSequence(): BelongsTo
-    {
-        return $this->belongsTo(StudentNumberSequence::class);
+        return $this->student_id_number;
     }
 
     public function generation(): BelongsTo

@@ -67,7 +67,6 @@ class StudentPortalController extends Controller
         $student->load([
             'user',
             'generation',
-            'studentNumberSequence',
             'enrollments.subjectOffering.subject',
             'enrollments.subjectOffering.teacher.user',
             'enrollments.subjectOffering.term',
@@ -202,7 +201,6 @@ class StudentPortalController extends Controller
         $student->load([
             'user',
             'generation',
-            'studentNumberSequence',
             'enrollments.subjectOffering.subject',
             'enrollments.subjectOffering.term',
             'enrollments.score.details.assessmentType',
@@ -259,7 +257,6 @@ class StudentPortalController extends Controller
         $student->load([
             'user',
             'generation',
-            'studentNumberSequence',
             'enrollments.subjectOffering.subject',
             'enrollments.subjectOffering.term',
             'enrollments.score.details.assessmentType',

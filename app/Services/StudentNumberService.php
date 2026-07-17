@@ -2,7 +2,6 @@
 
 namespace App\Services;
 
-use App\Models\StudentNumberSequence;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -37,9 +36,11 @@ class StudentNumberService
     {
         // Use MAX() on the numeric part after the '-' to find the highest sequence number,
         // rather than count(). This prevents duplicates when sequences are deleted.
-        $maxSeq = StudentNumberSequence::where('intake_year', $intakeYear)
+        $maxSeq = DB::table('students')
+            ->whereNotNull('student_id_number')
+            ->where('student_id_number', 'like', self::PREFIX . $intakeYear . '-%')
             ->lockForUpdate()
-            ->max(DB::raw("CAST(SUBSTRING(student_number, LOCATE('-', student_number) + 1) AS UNSIGNED)"));
+            ->max(DB::raw("CAST(SUBSTRING(student_id_number, LOCATE('-', student_id_number) + 1) AS UNSIGNED)"));
 
         $sequenceNumber = ($maxSeq ?? 0) + 1;
 
@@ -58,14 +59,10 @@ class StudentNumberService
         ];
     }
 
-    public function createSequence(int $intakeYear): StudentNumberSequence
+    public function createSequence(int $intakeYear): string
     {
         $numberData = $this->generateNext($intakeYear);
-
-        return StudentNumberSequence::create([
-            'intake_year' => $numberData['intake_year'],
-            'student_number' => $numberData['student_number'],
-        ]);
+        return $numberData['student_number'];
     }
 
     /**
