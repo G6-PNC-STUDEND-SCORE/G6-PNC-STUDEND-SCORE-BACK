@@ -10,6 +10,8 @@ class StudentSubjectEnrollment extends Model
 {
     protected $fillable = [
         'student_id',
+        'imported_name',
+        'imported_number',
         'student_class_history_id',
         'subject_offering_id',
         'status',
