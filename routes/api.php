@@ -56,9 +56,11 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::middleware('role:admin')->group(function () {
         Route::get('/users', [UserController::class, 'index']);
         Route::get('/users/roles', [UserController::class, 'roles']);
+        Route::delete('/users/bulk-delete', [UserController::class, 'bulkDelete']);
         Route::get('/users/{user}', [UserController::class, 'show']);
         Route::post('/users', [UserController::class, 'store']);
         Route::put('/users/{user}', [UserController::class, 'update']);
+        Route::patch('/users/{user}', [UserController::class, 'update']);
         Route::delete('/users/{user}', [UserController::class, 'destroy']);
     });
 
