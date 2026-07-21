@@ -15,7 +15,8 @@ use Illuminate\Support\Facades\Hash;
 class UserService
 {
     public function __construct(
-        private readonly ActivityLogService $activityLogService
+        private readonly ActivityLogService $activityLogService,
+        private readonly StudentNumberService $studentNumberService
     ) {}
 
     /**
@@ -75,6 +76,17 @@ class UserService
 
             $user->load('role:id,name,slug');
 
+            // Auto-create Student record if the user has the student role
+            if ($user->role?->slug === 'student') {
+                $intakeYear = now()->year;
+                $studentIdNumber = $this->studentNumberService->createSequence($intakeYear);
+
+                Student::create([
+                    'user_id'          => $user->id,
+                    'student_id_number' => $studentIdNumber,
+                ]);
+            }
+
             $this->activityLogService->logCreate(
                 $actor,
                 'Users',
@@ -114,6 +126,18 @@ class UserService
 
             $user->update($updateData);
             $user->load('role:id,name,slug');
+
+            // Auto-create Student record if the user now has the student role
+            // and doesn't already have one (e.g. role changed from teacher to student)
+            if ($user->role?->slug === 'student' && !$user->student()->exists()) {
+                $intakeYear = now()->year;
+                $studentIdNumber = $this->studentNumberService->createSequence($intakeYear);
+
+                Student::create([
+                    'user_id'          => $user->id,
+                    'student_id_number' => $studentIdNumber,
+                ]);
+            }
 
             $this->activityLogService->logUpdate(
                 $actor,
