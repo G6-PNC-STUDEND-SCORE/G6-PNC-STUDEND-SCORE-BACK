@@ -17,6 +17,7 @@ use App\Models\Term;
 use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 
@@ -79,8 +80,25 @@ class SpreadsheetController extends Controller
      * GET /spreadsheet/subject/{subject}/term/{term}
      * Returns a spreadsheet for a subject in a given term.
      * Aggregates all offerings of this subject in this term.
+     * Uses caching for fast repeated loads; invalidated on any mutation.
      */
     public function bySubjectAndTerm(Subject $subject, Term $term): JsonResponse
+    {
+        $cacheKey = "spreadsheet_{$subject->id}_{$term->id}";
+
+        // Try cache first; on miss, build and cache the result
+        $responseData = Cache::remember($cacheKey, 60, function () use ($subject, $term) {
+            return $this->buildSpreadsheetData($subject, $term);
+        });
+
+        return response()->json($responseData);
+    }
+
+    /**
+     * Build the full spreadsheet response data for a subject + term.
+     * This is the core logic shared between cache-fill and cache-warming.
+     */
+    private function buildSpreadsheetData(Subject $subject, Term $term): array
     {
         $offeringIds = SubjectOffering::where('subject_id', $subject->id)
             ->where('term_id', $term->id)
@@ -114,47 +132,76 @@ class SpreadsheetController extends Controller
         });
         $columns = $columnsMap->values()->sortBy('order_number')->values();
 
-        // Ensure every enrollment has a Score + ScoreDetail for each column
-        // Fixes the bug where students enrolled after columns were created
-        // would have no detail_id, causing score updates to overwrite the wrong student
-        $enrollments->each(function ($enr) use ($columns) {
-            if (!$enr->score) {
-                $score = Score::create(['student_subject_enrollment_id' => $enr->id]);
-                $enr->setRelation('score', $score);
-            }
+        // ─── Batch create missing scores ────────────────────────────────
+        $enrollmentIds = $enrollments->pluck('id');
+        $existingScoreEnrollmentIds = Score::whereIn('student_subject_enrollment_id', $enrollmentIds)
+            ->pluck('student_subject_enrollment_id');
+        $missingScoreEnrollmentIds = $enrollmentIds->diff($existingScoreEnrollmentIds);
 
-            $existingKeys = collect();
-            if ($enr->score->details) {
-                foreach ($enr->score->details as $d) {
-                    $key = $d->label . '_' . ($d->assessmentType?->code ?? 'unknown');
-                    $existingKeys->push($key);
-                }
-            }
+        if ($missingScoreEnrollmentIds->isNotEmpty()) {
+            $now = now();
+            $scoreInserts = $missingScoreEnrollmentIds->map(fn($eid) => [
+                'student_subject_enrollment_id' => $eid,
+                'created_at' => $now,
+                'updated_at' => $now,
+            ])->toArray();
+            Score::insert($scoreInserts);
 
+            // Reload enrollments with scores now available
+            $enrollments = StudentSubjectEnrollment::with([
+                'student.user',
+                'subjectOffering.class',
+                'score.details.assessmentType',
+            ])->whereIn('subject_offering_id', $offeringIds)->get();
+        }
+
+        // ─── Batch create missing score_details ─────────────────────────
+        $allScoreIds = Score::whereIn('student_subject_enrollment_id', $enrollmentIds)->pluck('id', 'student_subject_enrollment_id');
+        $existingDetailTuples = collect();
+        if ($columns->isNotEmpty()) {
+            $existingDetailTuples = ScoreDetail::whereIn('score_id', $allScoreIds->values())
+                ->whereIn('label', $columns->pluck('label')->unique())
+                ->get(['score_id', 'label', 'assessment_type_id'])
+                ->map(fn($d) => "{$d->score_id}_{$d->label}_{$d->assessment_type_id}");
+        }
+
+        $detailInserts = [];
+        foreach ($allScoreIds as $enrollmentId => $scoreId) {
             foreach ($columns as $col) {
-                $key = $col['label'] . '_' . $col['type'];
-                if (!$existingKeys->contains($key)) {
-                    ScoreDetail::create([
-                        'score_id' => $enr->score->id,
+                $tupleKey = "{$scoreId}_{$col['label']}_{$col['assessment_type_id']}";
+                if (!$existingDetailTuples->contains($tupleKey)) {
+                    $detailInserts[] = [
+                        'score_id' => $scoreId,
                         'assessment_type_id' => $col['assessment_type_id'],
                         'label' => $col['label'],
                         'max_score' => $col['max_score'],
                         'order_number' => $col['order_number'],
                         'mark' => null,
-                    ]);
+                        'created_at' => now(),
+                        'updated_at' => now(),
+                    ];
                 }
             }
+        }
 
-            // Reload details so rows below have accurate data
-            $enr->score->load('details.assessmentType');
-        });
+        if (!empty($detailInserts)) {
+            foreach (array_chunk($detailInserts, 200) as $chunk) {
+                ScoreDetail::insert($chunk);
+            }
+        }
+
+        // Reload everything once more with fresh details
+        $enrollments = StudentSubjectEnrollment::with([
+            'student.user',
+            'subjectOffering.class',
+            'score.details.assessmentType',
+        ])->whereIn('subject_offering_id', $offeringIds)->get();
 
         // Build rows - map each student's marks to the canonical column IDs
         $rows = $enrollments->map(function ($enr) use ($columns) {
             $detailMarks = [];
             $detailIdMap = [];
-            
-            // Create a map of label_type -> [mark, detail_id] for this student
+
             $studentMarkMap = collect();
             if ($enr->score && $enr->score->details) {
                 foreach ($enr->score->details as $d) {
@@ -165,8 +212,7 @@ class SpreadsheetController extends Controller
                     ]);
                 }
             }
-            
-            // Map canonical column IDs to this student's marks AND their actual detail IDs
+
             foreach ($columns as $col) {
                 $key = $col['label'] . '_' . $col['type'];
                 $studentData = $studentMarkMap->get($key);
@@ -197,7 +243,7 @@ class SpreadsheetController extends Controller
             ->orderBy('id')
             ->get(['id', 'code', 'name', 'weight_percent']);
 
-        return response()->json([
+        return [
             'success' => true,
             'data' => [
                 'subject' => $subject,
@@ -210,7 +256,43 @@ class SpreadsheetController extends Controller
                 'rows' => $rows,
                 'assessment_types' => $assessmentTypes,
             ],
-        ]);
+        ];
+    }
+
+    /**
+     * Invalidate AND immediately re-warm the spreadsheet cache.
+     * This ensures the first request after a mutation is still fast.
+     */
+    private function invalidateSpreadsheetCache(Subject $subject, Term $term): void
+    {
+        $cacheKey = "spreadsheet_{$subject->id}_{$term->id}";
+        // Re-build and cache immediately so the next visitor gets fresh data fast.
+        // Must forget first — remember() only calls the closure on cache miss!
+        // Silently fall back on failure — the cache will be rebuilt on the next GET.
+        Cache::forget($cacheKey);
+        try {
+            Cache::remember($cacheKey, 60, function () use ($subject, $term) {
+                return $this->buildSpreadsheetData($subject, $term);
+            });
+        } catch (\Throwable $e) {
+            // Cache warming failed; cache will rebuild on next request
+        }
+    }
+
+    /**
+     * Invalidate all spreadsheet caches (used when weights are updated globally).
+     */
+    private function invalidateAllSpreadsheetCaches(): void
+    {
+        // Clear by tag pattern - flush the entire spreadsheet namespace
+        $prefix = 'spreadsheet_';
+        // Get all offering combinations and forget each
+        $offerings = SubjectOffering::select('subject_id', 'term_id')
+            ->distinct()
+            ->get();
+        foreach ($offerings as $o) {
+            Cache::forget("{$prefix}{$o->subject_id}_{$o->term_id}");
+        }
     }
 
     /**
@@ -225,6 +307,7 @@ class SpreadsheetController extends Controller
 
         $detail->update(['score' => $request->mark]);
         $this->recalculateTotal($detail->score_id);
+        $this->invalidateSpreadsheetCache($subject, $term);
 
         return response()->json(['success' => true, 'data' => $detail->fresh()]);
     }
@@ -288,6 +371,7 @@ class SpreadsheetController extends Controller
                 $this->recalculateTotal($score->id);
             }
             DB::commit();
+            $this->invalidateSpreadsheetCache($subject, $term);
             return response()->json(['success' => true, 'message' => 'Column added.'], 201);
         } catch (\Exception $e) {
             DB::rollBack();
@@ -327,6 +411,7 @@ class SpreadsheetController extends Controller
             $this->recalculateTotal($scoreId);
         }
 
+        $this->invalidateSpreadsheetCache($subject, $term);
         return response()->json([
             'success' => true,
             'message' => "Column deleted ({$deletedCount} records removed).",
@@ -389,6 +474,7 @@ class SpreadsheetController extends Controller
             }
 
             DB::commit();
+            $this->invalidateSpreadsheetCache($subject, $term);
             return response()->json([
                 'success' => true,
                 'data' => ['updated_count' => $updatedCount],
@@ -406,6 +492,7 @@ class SpreadsheetController extends Controller
     {
         $request->validate(['label' => 'required|string|max:50']);
         $detail->update(['label' => $request->label]);
+        $this->invalidateSpreadsheetCache($subject, $term);
         return response()->json(['success' => true, 'data' => $detail->fresh()]);
     }
 
@@ -423,9 +510,10 @@ class SpreadsheetController extends Controller
         DB::beginTransaction();
         try {
             foreach ($request->columns as $col) {
-                ScoreDetail::where('id', $col['id'])->update(['sequence_number' => $col['order_number']]);
+                ScoreDetail::where('id', $col['id'])->update(['order_number' => $col['order_number']]);
             }
             DB::commit();
+            $this->invalidateSpreadsheetCache($subject, $term);
         } catch (\Exception $e) {
             DB::rollBack();
             return response()->json(['message' => $e->getMessage()], 500);
@@ -454,6 +542,8 @@ class SpreadsheetController extends Controller
                     $this->recalculateTotal($score->id);
                 }
             });
+            // Invalidate all spreadsheet caches since weights affect all scores
+            $this->invalidateAllSpreadsheetCaches();
             DB::commit();
             return response()->json(['success' => true, 'message' => 'Weights updated.']);
         } catch (\Exception $e) {
@@ -528,6 +618,7 @@ class SpreadsheetController extends Controller
 
                 Score::create(['student_subject_enrollment_id' => $enrollment->id]);
 
+                $this->invalidateSpreadsheetCache($subject, $term);
                 return response()->json([
                     'success' => true,
                     'data' => [
@@ -560,6 +651,7 @@ class SpreadsheetController extends Controller
             $enrollment->delete();
 
             DB::commit();
+            $this->invalidateSpreadsheetCache($subject, $term);
             return response()->json(['success' => true, 'message' => 'Enrollment deleted.']);
         } catch (\Exception $e) {
             DB::rollBack();
@@ -642,6 +734,7 @@ class SpreadsheetController extends Controller
                 // Reload to get fresh data
                 $enrollment->load('student.user');
 
+                $this->invalidateSpreadsheetCache($subject, $term);
                 return response()->json([
                     'success' => true,
                     'data' => [
@@ -657,8 +750,8 @@ class SpreadsheetController extends Controller
 
     /**
      * POST /spreadsheet/subject/{subject}/term/{term}/sync-google
-     * Exports data ready for Google Sheets integration.
-     * This generates a CSV-compatible blob URL for direct Google Sheets opening.
+     * Exports data in CSV format for Google Sheets integration.
+     * Now includes Class, Total, and Grade columns for complete data export.
      */
     public function syncToGoogleSheets(Subject $subject, Term $term): JsonResponse
     {
@@ -669,10 +762,11 @@ class SpreadsheetController extends Controller
 
         $enrollments = StudentSubjectEnrollment::with([
             'student.user',
+            'subjectOffering.class',
             'score.details.assessmentType',
         ])->whereIn('subject_offering_id', $offeringIds)->get();
 
-        // Generate CSV content with DEDUPLICATED columns (same as bySubjectAndTerm)
+        // Build deduplicated columns
         $columnsMap = collect();
         $enrollments->each(function ($enr) use ($columnsMap) {
             if ($enr->score && $enr->score->details) {
@@ -683,61 +777,59 @@ class SpreadsheetController extends Controller
                             'id' => $d->id,
                             'label' => $d->label,
                             'type' => $d->assessmentType?->code ?? 'unknown',
+                            'order_number' => $d->order_number ?? 0,
                         ]);
                     }
                 }
             }
         });
-        $columns = $columnsMap->values();
+        $columns = $columnsMap->values()->sortBy('order_number')->values();
 
-        // Build CSV
-        $colLabels = $columns->pluck('label', 'id');
-        $colTypes = $columns->pluck('type', 'id');
-        $colIds = $columns->pluck('id');
-
-        $csv = "Student Name,Student ID";
-        foreach ($colLabels as $id => $label) {
-            $type = $colTypes[$id] ?? '';
-            $csv .= ",{$label} ({$type})";
+        // Build CSV header with all columns
+        $csv = '#,Student Name,Student ID,Class';
+        foreach ($columns as $col) {
+            $csv .= "," . $col['label'] . ' (' . $col['type'] . ')';
         }
-        $csv .= ",Total,Grade,Remarks\n";
+        $csv .= ",Total,Grade\n";
 
+        // Build data rows
+        $rowNum = 1;
         foreach ($enrollments as $enr) {
-            $name = str_replace(',', ' ', $enr->student?->user?->name ?? 'N/A');
+            $name = str_replace(',', ' ', $enr->student?->user?->name ?? '');
             $studentNum = $enr->student?->student_id_number ?? '';
-            $csv .= "{$name},{$studentNum}";
+            $className = str_replace(',', ' ', $enr->subjectOffering?->class?->name ?? '');
+            
+            $csv .= "{$rowNum},{$name},{$studentNum},{$className}";
+
+            // Create detail lookup for this student
             if ($enr->score) {
                 $detailMap = [];
                 foreach ($enr->score->details as $d) {
-                    $detailMap[$d->id] = $d->mark;
+                    $key = $d->label . '_' . ($d->assessmentType?->code ?? 'unknown');
+                    $detailMap[$key] = $d->mark;
                 }
-                foreach ($colIds as $id) {
-                    $mark = $detailMap[$id] ?? null;
+                foreach ($columns as $col) {
+                    $key = $col['label'] . '_' . $col['type'];
+                    $mark = $detailMap[$key] ?? null;
                     $csv .= "," . ($mark !== null ? $mark : '');
                 }
-                $csv .= ",{$enr->score->total},{$enr->score->grade}," . ($enr->score->remarks ?? '');
+                $csv .= ",{$enr->score->total},{$enr->score->grade}";
             } else {
-                foreach ($colIds as $id) {
+                foreach ($columns as $col) {
                     $csv .= ",";
                 }
-                $csv .= ",,,";
+                $csv .= ",,";
             }
             $csv .= "\n";
+            $rowNum++;
         }
 
-        // Encode the CSV for Google Sheets import
-        $csvEncoded = base64_encode($csv);
-        
-        // Use Google Sheets import URL with CSV data
-        // This will open Google Sheets and import the CSV data directly
-        $googleSheetsUrl = "https://docs.google.com/spreadsheets/create?csv=" . $csvEncoded;
-
+        // Return as downloadable CSV content
         return response()->json([
             'success' => true,
             'data' => [
                 'csv_content' => $csv,
-                'google_sheets_url' => $googleSheetsUrl,
-                'download_url' => "data:text/csv;base64,{$csvEncoded}",
+                'filename' => "scores-{$subject->subject_code}-{$term->name}.csv",
             ],
         ]);
     }
@@ -878,7 +970,7 @@ class SpreadsheetController extends Controller
                     if ($detail) {
                         $mark = (float) $data[$csvIdx];
                         if ($mark >= 0 && $mark <= 100) {
-                            $detail->update(['mark' => $mark]);
+                            $detail->update(['score' => $mark]);
                         }
                     }
                 }
@@ -1033,7 +1125,7 @@ class SpreadsheetController extends Controller
                     if ($detail) {
                         $mark = (float) $markValue;
                         if ($mark >= 0 && $mark <= 100) {
-                            $detail->update(['mark' => $mark]);
+                            $detail->update(['score' => $mark]);
                         }
                     }
                 }

@@ -305,6 +305,11 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/students/{student}/generate-transcript', [ReportCardController::class, 'generateTranscript'])->middleware('permission:generate-report-cards');
 
     // ── Google Sheets OAuth Integration ────────────────────────────
+    Route::get('/google-sheets/config', [GoogleSheetsController::class, 'config']);
+    Route::get('/google-sheets/status', [GoogleSheetsController::class, 'status']);
+    Route::post('/google-sheets/token', [GoogleSheetsController::class, 'exchangeToken']);
+    Route::post('/google-sheets/refresh', [GoogleSheetsController::class, 'refreshToken']);
+    Route::post('/google-sheets/disconnect', [GoogleSheetsController::class, 'disconnect']);
     Route::post('/google-sheets/create', [GoogleSheetsController::class, 'createSheet'])->middleware('permission:view-scores');
     Route::post('/google-sheets/import', [GoogleSheetsController::class, 'importSheet'])->middleware('permission:create-scores');
 });

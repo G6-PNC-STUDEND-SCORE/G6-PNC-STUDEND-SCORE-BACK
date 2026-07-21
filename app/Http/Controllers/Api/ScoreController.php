@@ -175,7 +175,7 @@ class ScoreController extends Controller
     {
         $details = ScoreDetail::with('assessmentType')
             ->where('score_id', $score->id)
-            ->whereNotNull('mark')
+            ->whereNotNull('score')
             ->get();
 
         if ($details->isEmpty()) {
