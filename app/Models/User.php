@@ -20,7 +20,6 @@ class User extends Authenticatable
         'name',
         'email',
         'password',
-        'phone',
         'gender',
         'date_of_birth',
         'avatar',
@@ -37,6 +36,7 @@ class User extends Authenticatable
     protected $hidden = [
         'password',
         'remember_token',
+        'google_refresh_token',
     ];
 
     protected function casts(): array
@@ -46,6 +46,8 @@ class User extends Authenticatable
             'date_of_birth' => 'date',
             'last_login_at' => 'datetime',
             'password' => 'hashed',
+            'google_refresh_token' => 'encrypted',
+            'google_token_expires_at' => 'datetime',
         ];
     }
 

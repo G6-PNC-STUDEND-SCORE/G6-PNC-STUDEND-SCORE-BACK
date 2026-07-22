@@ -60,6 +60,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/users', [UserController::class, 'store']);
         Route::put('/users/{user}', [UserController::class, 'update']);
         Route::delete('/users/{user}', [UserController::class, 'destroy']);
+        Route::post('/users/bulk-delete', [UserController::class, 'bulkDelete']);
     });
 
     // ── ADMIN ONLY — Permission & Role Management ────────────────
@@ -311,6 +312,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/google-sheets/refresh', [GoogleSheetsController::class, 'refreshToken']);
     Route::post('/google-sheets/disconnect', [GoogleSheetsController::class, 'disconnect']);
     Route::post('/google-sheets/create', [GoogleSheetsController::class, 'createSheet'])->middleware('permission:view-scores');
+    Route::post('/google-sheets/push', [GoogleSheetsController::class, 'pushSheet'])->middleware('permission:view-scores');
     Route::post('/google-sheets/import', [GoogleSheetsController::class, 'importSheet'])->middleware('permission:create-scores');
+    Route::post('/google-sheets/ensure-shared', [GoogleSheetsController::class, 'ensureShared'])->middleware('permission:view-scores');
 });
 

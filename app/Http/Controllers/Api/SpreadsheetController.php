@@ -112,24 +112,36 @@ class SpreadsheetController extends Controller
         ])->whereIn('subject_offering_id', $offeringIds)->get();
 
         // Collect all unique score-detail columns, deduplicated by label+type
-        $columnsMap = collect();
-        $enrollments->each(function ($enr) use ($columnsMap) {
-            if ($enr->score && $enr->score->details) {
-                foreach ($enr->score->details as $d) {
-                    $key = $d->label . '_' . ($d->assessmentType?->code ?? 'unknown');
-                    if (!$columnsMap->has($key)) {
-                        $columnsMap->put($key, [
-                            'id' => $d->id,
-                            'label' => $d->label,
-                            'type' => $d->assessmentType?->code ?? 'unknown',
-                            'order_number' => $d->order_number ?? 0,
-                            'max_score' => $d->max_score,
-                            'assessment_type_id' => $d->assessment_type_id,
-                        ]);
-                    }
-                }
+        $columnsMap = $this->collectColumnsMap($enrollments);
+
+        // Brand-new sheet with no score details yet — seed the four default
+        // assessment columns (after the frozen ID column) so teachers don't
+        // have to add them one by one. Real ScoreDetail rows (with real IDs)
+        // are created for every student by the backfill logic below.
+        if ($columnsMap->isEmpty() && $enrollments->isNotEmpty()) {
+            $defaultColumns = [
+                ['code' => 'quiz', 'label' => 'Quiz 1', 'order_number' => 1],
+                ['code' => 'assignment', 'label' => 'Assignment', 'order_number' => 2],
+                ['code' => 'midterm', 'label' => 'Midterm', 'order_number' => 3],
+                ['code' => 'final', 'label' => 'Final', 'order_number' => 4],
+            ];
+            $assessmentTypesByCode = AssessmentType::whereIn('code', array_column($defaultColumns, 'code'))
+                ->get()->keyBy('code');
+
+            foreach ($defaultColumns as $def) {
+                $assessmentType = $assessmentTypesByCode->get($def['code']);
+                if (!$assessmentType) continue;
+                $columnsMap->put($def['code'], [
+                    'id' => null,
+                    'label' => $def['label'],
+                    'type' => $def['code'],
+                    'order_number' => $def['order_number'],
+                    'max_score' => 100,
+                    'assessment_type_id' => $assessmentType->id,
+                ]);
             }
-        });
+        }
+
         $columns = $columnsMap->values()->sortBy('order_number')->values();
 
         // ─── Batch create missing scores ────────────────────────────────
@@ -175,8 +187,11 @@ class SpreadsheetController extends Controller
                         'assessment_type_id' => $col['assessment_type_id'],
                         'label' => $col['label'],
                         'max_score' => $col['max_score'],
-                        'order_number' => $col['order_number'],
-                        'mark' => null,
+                        // Raw insert() bypasses Eloquent mutators, so these must be the real
+                        // column names ('sequence_number', 'score'), not the 'order_number'/
+                        // 'mark' accessor/mutator aliases defined on the ScoreDetail model.
+                        'sequence_number' => $col['order_number'],
+                        'score' => null,
                         'created_at' => now(),
                         'updated_at' => now(),
                     ];
@@ -196,6 +211,10 @@ class SpreadsheetController extends Controller
             'subjectOffering.class',
             'score.details.assessmentType',
         ])->whereIn('subject_offering_id', $offeringIds)->get();
+
+        // Rebuild columns from the reloaded data so any column created above
+        // (e.g. the default four) carries its real ScoreDetail id, not null.
+        $columns = $this->collectColumnsMap($enrollments)->values()->sortBy('order_number')->values();
 
         // Build rows - map each student's marks to the canonical column IDs
         $rows = $enrollments->map(function ($enr) use ($columns) {
@@ -257,6 +276,33 @@ class SpreadsheetController extends Controller
                 'assessment_types' => $assessmentTypes,
             ],
         ];
+    }
+
+    /**
+     * Collect all unique score-detail columns across a set of enrollments,
+     * deduplicated by label+assessment-type.
+     */
+    private function collectColumnsMap($enrollments): \Illuminate\Support\Collection
+    {
+        $columnsMap = collect();
+        $enrollments->each(function ($enr) use ($columnsMap) {
+            if ($enr->score && $enr->score->details) {
+                foreach ($enr->score->details as $d) {
+                    $key = $d->label . '_' . ($d->assessmentType?->code ?? 'unknown');
+                    if (!$columnsMap->has($key)) {
+                        $columnsMap->put($key, [
+                            'id' => $d->id,
+                            'label' => $d->label,
+                            'type' => $d->assessmentType?->code ?? 'unknown',
+                            'order_number' => $d->order_number ?? 0,
+                            'max_score' => $d->max_score,
+                            'assessment_type_id' => $d->assessment_type_id,
+                        ]);
+                    }
+                }
+            }
+        });
+        return $columnsMap;
     }
 
     /**
@@ -841,6 +887,10 @@ class SpreadsheetController extends Controller
      */
     public function importFromGoogleSheets(Request $request, Subject $subject, Term $term): JsonResponse
     {
+        // Bulk imports can create many new student accounts in one request; give this endpoint
+        // more headroom than the default 30s so a large class import doesn't hit a hard timeout.
+        set_time_limit(120);
+
         $request->validate([
             'csv_content' => 'required|string',
         ]);
@@ -875,6 +925,11 @@ class SpreadsheetController extends Controller
             ->where('term_id', $term->id)
             ->where('status', 'active')
             ->pluck('id');
+
+        // Bcrypt at cost 12 takes a few hundred ms per call; hashing once and reusing it for
+        // every placeholder account created during this import avoids multiplying that cost by
+        // the row count, which was blowing past PHP's max_execution_time on larger imports.
+        $defaultPasswordHash = bcrypt('password');
 
         DB::beginTransaction();
         try {
@@ -911,7 +966,7 @@ class SpreadsheetController extends Controller
                     $user = User::create([
                         'name' => $studentName ?: 'Imported Student',
                         'email' => 'imported_' . uniqid() . '@example.com',
-                        'password' => bcrypt('password'),
+                        'password' => $defaultPasswordHash,
                         'role_id' => $studentRoleId,
                         'status' => 'active',
                     ]);
@@ -993,6 +1048,9 @@ class SpreadsheetController extends Controller
      */
     public function importFile(Request $request, Subject $subject, Term $term): JsonResponse
     {
+        // See importFromGoogleSheets() — same headroom for the same reason.
+        set_time_limit(120);
+
         if ($request->hasFile('file')) {
             $file = $request->file('file');
             $extension = strtolower($file->getClientOriginalExtension());
@@ -1022,6 +1080,10 @@ class SpreadsheetController extends Controller
             ->where('term_id', $term->id)
             ->where('status', 'active')
             ->pluck('id');
+
+        // See importFromGoogleSheets() — hash once and reuse for every placeholder account
+        // created in this import instead of paying bcrypt's cost per row.
+        $defaultPasswordHash = bcrypt('password');
 
         DB::beginTransaction();
         try {
@@ -1075,7 +1137,7 @@ class SpreadsheetController extends Controller
                     $user = User::create([
                         'name' => $studentName ?: 'Imported Student',
                         'email' => 'imported_' . uniqid() . '@example.com',
-                        'password' => bcrypt('password'),
+                        'password' => $defaultPasswordHash,
                         'role_id' => $studentRoleId,
                         'status' => 'active',
                     ]);

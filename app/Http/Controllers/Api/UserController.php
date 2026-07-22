@@ -47,7 +47,6 @@ class UserController extends Controller
                     'id'         => $user->id,
                     'name'       => $user->name,
                     'email'      => $user->email,
-                    'phone'      => $user->phone,
                     'gender'     => $user->gender,
                     'status'     => $user->status,
                     'role'       => $user->role,
@@ -83,7 +82,6 @@ class UserController extends Controller
             'email'    => 'required|email|max:255|unique:users,email',
             'password' => 'required|string|min:8|max:255',
             'role_id'  => 'required|exists:roles,id',
-            'phone'    => 'nullable|string|max:20',
             'gender'   => 'nullable|in:Male,Female,Other',
             'status'   => 'nullable|in:active,inactive,suspended',
         ]);
@@ -95,7 +93,6 @@ class UserController extends Controller
                 'email'    => $request->email,
                 'password' => Hash::make($request->password),
                 'role_id'  => $request->role_id,
-                'phone'    => $request->phone,
                 'gender'   => $request->gender,
                 'status'   => $request->status ?? 'active',
             ]);
@@ -131,7 +128,6 @@ class UserController extends Controller
             'email'    => 'required|email|max:255|unique:users,email,' . $user->id,
             'password' => 'nullable|string|min:8|max:255',
             'role_id'  => 'required|exists:roles,id',
-            'phone'    => 'nullable|string|max:20',
             'gender'   => 'nullable|in:Male,Female,Other',
             'status'   => 'nullable|in:active,inactive,suspended',
         ]);
@@ -147,7 +143,6 @@ class UserController extends Controller
             'name'    => $request->name,
             'email'   => $request->email,
             'role_id' => $request->role_id,
-            'phone'   => $request->phone,
             'gender'  => $request->gender,
             'status'  => $request->status ?? $user->status,
         ];
@@ -199,6 +194,34 @@ class UserController extends Controller
         return response()->json([
             'success' => true,
             'message' => 'User deleted successfully.',
+        ]);
+    }
+
+    // POST /users/bulk-delete — delete multiple users at once
+    public function bulkDelete(Request $request): JsonResponse
+    {
+        $request->validate([
+            'ids'   => 'required|array',
+            'ids.*' => 'integer|exists:users,id',
+        ]);
+
+        // Prevent self-deletion
+        $ids = array_filter($request->ids, fn($id) => $id != $request->user()->id);
+
+        $deleted = User::whereIn('id', $ids)->delete();
+
+        $this->activityLogService->logDelete(
+            $request->user(),
+            'Users',
+            "Bulk deleted {$deleted} user(s).",
+            null,
+            ['deleted_count' => $deleted, 'ids' => $ids]
+        );
+
+        return response()->json([
+            'success' => true,
+            'message' => "{$deleted} user(s) deleted successfully.",
+            'data'    => ['deleted_count' => $deleted],
         ]);
     }
 

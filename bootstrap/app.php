@@ -16,6 +16,13 @@ return Application::configure(basePath: dirname(__DIR__))
             \Illuminate\Http\Middleware\HandleCors::class,
         ]);
 
+        // This is an API-only backend with no 'login' web route. Without this, the
+        // "auth" middleware's default redirectTo() calls route('login') for any
+        // request that doesn't look like an XHR/JSON call (e.g. no Accept header),
+        // which throws RouteNotFoundException and turns every expired/missing-token
+        // request into a 500 instead of a clean 401 JSON response.
+        $middleware->redirectGuestsTo(fn () => null);
+
         // Register permission middleware alias for use in routes
         $middleware->alias([
             'permission' => \App\Http\Middleware\CheckPermission::class,

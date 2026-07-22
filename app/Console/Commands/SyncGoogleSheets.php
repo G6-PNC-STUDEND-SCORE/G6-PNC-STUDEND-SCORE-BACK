@@ -14,6 +14,19 @@ use Illuminate\Support\Facades\Log;
 
 class SyncGoogleSheets extends Command
 {
+    /**
+     * See GoogleSheetsController::googleHttp() — same local CA-bundle workaround,
+     * needed because php.ini's curl.cainfo/openssl.cafile point at a missing file.
+     */
+    private function googleHttp(): \Illuminate\Http\Client\PendingRequest
+    {
+        $bundledCaFile = storage_path('app/certs/cacert.pem');
+
+        return Http::withOptions([
+            'verify' => is_file($bundledCaFile) ? $bundledCaFile : true,
+        ]);
+    }
+
     protected $signature = 'google-sheets:sync 
         {--subject= : Subject ID to sync (optional, syncs all if omitted)}
         {--term= : Term ID to sync (optional, syncs all if omitted)}
@@ -100,12 +113,12 @@ class SyncGoogleSheets extends Command
                     }
 
                     // Determine the sheet tab name
-                    $sheetTabTitle = preg_replace('/[\[\]:?*\/\\\\]/', '-', "{$subject->subject_code} - {$term->name}");
+                    $sheetTabTitle = preg_replace('/[\[\]:?*\/\\\\]/', '-', ($subject->subject_code ?: $subject->name) . " - {$term->name}");
                     $sheetTabTitle = mb_substr($sheetTabTitle, 0, 100);
 
                     // Fetch data from Google Sheets
                     try {
-                        $response = Http::withToken($accessToken)
+                        $response = $this->googleHttp()->withToken($accessToken)
                             ->get("https://sheets.googleapis.com/v4/spreadsheets/{$spreadsheetId}/values/" . rawurlencode($sheetTabTitle));
 
                         if (!$response->successful()) {
@@ -255,7 +268,7 @@ class SyncGoogleSheets extends Command
         }
 
         try {
-            $response = Http::post('https://oauth2.googleapis.com/token', [
+            $response = $this->googleHttp()->post('https://oauth2.googleapis.com/token', [
                 'refresh_token' => $user->google_refresh_token,
                 'client_id' => $clientId,
                 'client_secret' => $clientSecret,

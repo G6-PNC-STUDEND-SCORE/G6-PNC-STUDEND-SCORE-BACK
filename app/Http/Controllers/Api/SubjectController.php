@@ -75,6 +75,8 @@ class SubjectController extends Controller
             'teacher_ids.*' => 'integer|exists:teachers,id',
             'class_ids'     => 'nullable|array',
             'class_ids.*'   => 'integer|exists:classes,id',
+            'term_ids'      => 'nullable|array',
+            'term_ids.*'    => 'integer|exists:terms,id',
         ]);
 
         $request->merge(['status' => ucfirst(strtolower($request->status ?? 'Active'))]);
@@ -90,6 +92,11 @@ class SubjectController extends Controller
 
         if ($request->has('teacher_ids')) {
             $subject->teachers()->sync($request->teacher_ids ?? []);
+        }
+
+        // Sync terms BEFORE class offerings so syncClassOfferings can find them
+        if ($request->has('term_ids')) {
+            $subject->terms()->sync($request->term_ids ?? []);
         }
 
         // Create SubjectOffering records for each class_id
@@ -202,8 +209,15 @@ class SubjectController extends Controller
             return; // No academic year exists yet
         }
 
-        // Get all active terms for this subject (via subject_term pivot)
+        // Get all active terms for this subject (via subject_term pivot).
+        // If no terms are assigned yet, fall back to ALL terms in the current
+        // academic year so class offerings are still created.
         $termIds = $subject->terms()->pluck('terms.id')->toArray();
+        if (empty($termIds) && $academicYear) {
+            $termIds = \App\Models\Term::where('academic_year_id', $academicYear->id)
+                ->pluck('id')
+                ->toArray();
+        }
 
         // Get existing offerings for this subject
         $existingOfferings = SubjectOffering::where('subject_id', $subject->id)->get();

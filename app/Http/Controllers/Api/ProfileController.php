@@ -34,7 +34,6 @@ class ProfileController extends Controller
         $validator = Validator::make($request->all(), [
             'name' => 'sometimes|string|max:255',
             'email' => 'sometimes|email|max:255|unique:users,email,' . $user->id,
-            'phone' => 'nullable|string|max:20',
             'department' => 'nullable|string|max:255',
             'school' => 'nullable|string|max:255',
             'bio' => 'nullable|string|max:1000',
@@ -51,7 +50,6 @@ class ProfileController extends Controller
         $user->update($request->only([
             'name',
             'email',
-            'phone',
             'department',
             'school',
             'bio',
