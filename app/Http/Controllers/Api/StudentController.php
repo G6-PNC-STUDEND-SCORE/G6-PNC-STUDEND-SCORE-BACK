@@ -28,6 +28,11 @@ class StudentController extends Controller
 
         if ($user->hasRole('student')) {
             $query->where('user_id', $user->id);
+        } else {
+            // Students auto-created as a side effect of adding a score-sheet row or importing
+            // a scores file/Google Sheet shouldn't clutter this management list — they still
+            // work fine for scoring, they just don't need managing here.
+            $query->where('is_placeholder', false);
         }
 
         $students = $query->get();

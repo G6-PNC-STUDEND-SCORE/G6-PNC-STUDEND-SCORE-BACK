@@ -20,7 +20,11 @@ class UserController extends Controller
     // GET /users — list all users with their roles
     public function index(Request $request): JsonResponse
     {
-        $query = User::with('role:id,name,slug');
+        $query = User::with('role:id,name,slug')
+            // Placeholder accounts auto-created as a side effect of adding a score-sheet row
+            // or importing a scores file/Google Sheet shouldn't clutter user management —
+            // they still work fine for scoring, they just don't need managing here.
+            ->whereDoesntHave('student', fn($q) => $q->where('is_placeholder', true));
 
         // Search filter
         if ($search = $request->get('search')) {

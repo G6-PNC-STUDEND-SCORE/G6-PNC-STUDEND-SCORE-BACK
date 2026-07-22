@@ -553,6 +553,19 @@ class GoogleSheetsController extends Controller
                 }
             }
 
+            // Locate the Total/Grade columns by header name (not a fixed position) so we can
+            // write the recalculated values straight back — this is what makes Total/Grade in
+            // the actual sheet update themselves after a score edit, the same way they do on
+            // the score sheet page, instead of sitting frozen at whatever they were when the
+            // sheet was created/last pushed.
+            $totalColIdx = null;
+            $gradeColIdx = null;
+            foreach ($headers as $h => $label) {
+                $normalized = strtolower(trim((string) $label));
+                if ($normalized === 'total') $totalColIdx = $h;
+                if ($normalized === 'grade') $gradeColIdx = $h;
+            }
+
             DB::beginTransaction();
             try {
                 $offeringIds = SubjectOffering::where('subject_id', $subject->id)
@@ -560,7 +573,8 @@ class GoogleSheetsController extends Controller
                     ->pluck('id');
 
                 $importedCount = 0;
-                foreach ($rows as $row) {
+                $sheetWriteBack = [];
+                foreach ($rows as $rowIndex => $row) {
                     if (count($row) < 2) continue;
 
                     $studentNumber = trim($row[2] ?? '');
@@ -584,6 +598,27 @@ class GoogleSheetsController extends Controller
                     }
 
                     if (!$enrollment) continue;
+
+                    // Sync the Student Name / Student ID cells too — the score sheet page lets
+                    // these two be edited inline same as any score cell, so an edit made
+                    // directly in Sheets should land back in the app the same way a mark does.
+                    // (Only these two — Class isn't editable via import: it's a read-only
+                    // projection of the student's actual class assignment, and blindly writing
+                    // whatever text is in that cell back as a class change would be unsafe.)
+                    if ($studentName && $enrollment->student?->user && $enrollment->student->user->name !== $studentName) {
+                        try {
+                            $enrollment->student->user->update(['name' => $studentName]);
+                        } catch (\Exception $e) {
+                            Log::warning('Google Sheets import: failed to update student name', ['enrollment_id' => $enrollment->id, 'error' => $e->getMessage()]);
+                        }
+                    }
+                    if ($studentNumber && $enrollment->student && $enrollment->student->student_id_number !== $studentNumber) {
+                        try {
+                            $enrollment->student->update(['student_id_number' => $studentNumber]);
+                        } catch (\Exception $e) {
+                            Log::warning('Google Sheets import: failed to update student ID number', ['enrollment_id' => $enrollment->id, 'error' => $e->getMessage()]);
+                        }
+                    }
 
                     // Ensure score exists
                     if (!$enrollment->score) {
@@ -620,9 +655,45 @@ class GoogleSheetsController extends Controller
 
                     $this->recalculateTotal($score->id);
                     $importedCount++;
+
+                    if ($totalColIdx !== null || $gradeColIdx !== null) {
+                        $score->refresh(); // recalculateTotal() updates the DB row via its own model instance
+                        $sheetRow = $rowIndex + 2; // +1 for the header row, +1 for 1-indexing
+                        if ($totalColIdx !== null) {
+                            $sheetWriteBack[] = [
+                                'range' => "'{$sheetTabTitle}'!" . $this->columnIndexToLetter($totalColIdx) . $sheetRow,
+                                'values' => [[$score->total !== null ? (string) $score->total : '']],
+                            ];
+                        }
+                        if ($gradeColIdx !== null) {
+                            $sheetWriteBack[] = [
+                                'range' => "'{$sheetTabTitle}'!" . $this->columnIndexToLetter($gradeColIdx) . $sheetRow,
+                                'values' => [[$score->grade ?? '']],
+                            ];
+                        }
+                    }
                 }
 
                 DB::commit();
+
+                if (!empty($sheetWriteBack)) {
+                    // Best-effort — the import into our own DB already succeeded and is what
+                    // matters most; a failure writing Total/Grade back to the sheet shouldn't
+                    // turn a successful sync into a reported failure.
+                    $writeBackResponse = $this->googleHttp()->withToken($accessToken)
+                        ->post("https://sheets.googleapis.com/v4/spreadsheets/{$spreadsheetId}/values:batchUpdate", [
+                            'valueInputOption' => 'RAW',
+                            'data' => $sheetWriteBack,
+                        ]);
+                    if (!$writeBackResponse->successful()) {
+                        Log::warning('Google Sheets Total/Grade write-back failed', [
+                            'spreadsheet_id' => $spreadsheetId,
+                            'status' => $writeBackResponse->status(),
+                            'body' => $writeBackResponse->body(),
+                        ]);
+                    }
+                }
+
                 return response()->json([
                     'success' => true,
                     'message' => "Imported {$importedCount} student scores successfully.",
@@ -811,6 +882,23 @@ class GoogleSheetsController extends Controller
         // Replace characters not allowed in Google Sheets tab titles
         $title = str_replace(['[', ']', ':', '?', '*', '/', '\\'], '-', $title);
         return mb_substr($title, 0, 100);
+    }
+
+    /**
+     * Convert a 0-indexed column number to its spreadsheet column letter(s): 0 -> A, 25 -> Z,
+     * 26 -> AA, etc. Used to build A1-notation ranges (e.g. "K5") for writing Total/Grade
+     * back to whichever columns they actually landed in for a given sheet's header row.
+     */
+    private function columnIndexToLetter(int $index): string
+    {
+        $letter = '';
+        $index++; // 1-indexed for this algorithm
+        while ($index > 0) {
+            $remainder = ($index - 1) % 26;
+            $letter = \chr(65 + $remainder) . $letter;
+            $index = intdiv($index - 1, 26);
+        }
+        return $letter;
     }
 
     /**

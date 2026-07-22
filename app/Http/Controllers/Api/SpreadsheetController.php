@@ -650,6 +650,7 @@ class SpreadsheetController extends Controller
                     $student = Student::create([
                         'user_id' => $user->id,
                         'student_id_number' => $studentNumber,
+                        'is_placeholder' => true,
                     ]);
                 }
 
@@ -766,6 +767,7 @@ class SpreadsheetController extends Controller
                         $student = Student::create([
                             'user_id' => $user->id,
                             'student_id_number' => $studentNumber,
+                            'is_placeholder' => true,
                         ]);
                         $enrollment->update(['student_id' => $student->id]);
                     }
@@ -977,6 +979,7 @@ class SpreadsheetController extends Controller
                     $student = Student::create([
                         'user_id' => $user->id,
                         'student_id_number' => $studentNum,
+                        'is_placeholder' => true,
                     ]);
 
                     $studentClassHistory = $this->getOrCreateStudentClassHistory($offering, $student);
@@ -1006,6 +1009,7 @@ class SpreadsheetController extends Controller
                 // Build a lookup map of label_type => detail_id for this student's score
                 // This matches the same approach used in bySubjectAndTerm()
                 $detailMap = [];
+                $labelOnlyMap = []; // label => [ScoreDetail, ...] — fallback for headers with no "(type)"
                 $existingDetails = ScoreDetail::with('assessmentType')
                     ->where('score_id', $score->id)
                     ->get();
@@ -1013,14 +1017,24 @@ class SpreadsheetController extends Controller
                 foreach ($existingDetails as $d) {
                     $key = $d->label . '_' . ($d->assessmentType?->code ?? 'unknown');
                     $detailMap[$key] = $d;
+                    $labelOnlyMap[$d->label][] = $d;
                 }
 
-                // Map CSV columns to ScoreDetails by label+type
+                // Map CSV columns to ScoreDetails by label+type, falling back to label alone
+                // (when unambiguous) for a header like "Quiz 1" that never had a real type to
+                // begin with — see the parsing above, which tags those as type "unknown".
                 foreach ($csvColumnMap as $csvIdx => $colInfo) {
                     if (!isset($data[$csvIdx]) || $data[$csvIdx] === '') continue;
 
                     $lookupKey = $colInfo['label'] . '_' . $colInfo['type'];
                     $detail = $detailMap[$lookupKey] ?? null;
+
+                    if (!$detail) {
+                        $candidates = $labelOnlyMap[$colInfo['label']] ?? [];
+                        if (count($candidates) === 1) {
+                            $detail = $candidates[0];
+                        }
+                    }
 
                     if ($detail) {
                         $mark = (float) $data[$csvIdx];
@@ -1087,22 +1101,26 @@ class SpreadsheetController extends Controller
 
         DB::beginTransaction();
         try {
-            // Get the existing columns for this subject+term
+            // Canonical column set for this subject+term, keyed by label — used to backfill a
+            // ScoreDetail row for students who don't already have one for a given column
+            // (typically a brand-new student created by this very import, who starts with
+            // zero ScoreDetail rows). Without this, a new student's marks had nothing to
+            // attach to and silently vanished even though existing students' same-named
+            // columns matched fine.
             $existingEnrollments = StudentSubjectEnrollment::with([
                 'student.user',
                 'score.details.assessmentType',
             ])->whereIn('subject_offering_id', $offeringIds)->get();
 
-            $columnsMap = collect();
-            $existingEnrollments->each(function ($enr) use ($columnsMap) {
+            $canonicalColumns = collect(); // label => ['assessment_type_id', 'max_score', 'order_number']
+            $existingEnrollments->each(function ($enr) use ($canonicalColumns) {
                 if ($enr->score && $enr->score->details) {
                     foreach ($enr->score->details as $d) {
-                        $key = $d->label . '_' . ($d->assessmentType?->code ?? 'unknown');
-                        if (!$columnsMap->has($key)) {
-                            $columnsMap->put($key, [
-                                'id' => $d->id,
-                                'label' => $d->label,
-                                'type' => $d->assessmentType?->code ?? 'unknown',
+                        if (!$canonicalColumns->has($d->label)) {
+                            $canonicalColumns->put($d->label, [
+                                'assessment_type_id' => $d->assessment_type_id,
+                                'max_score' => $d->max_score,
+                                'order_number' => $d->order_number ?? 0,
                             ]);
                         }
                     }
@@ -1146,6 +1164,7 @@ class SpreadsheetController extends Controller
                     $student = Student::create([
                         'user_id' => $user->id,
                         'student_id_number' => $studentNum,
+                        'is_placeholder' => true,
                     ]);
 
                     $studentClassHistory = $this->getOrCreateStudentClassHistory($offering, $student);
@@ -1170,8 +1189,15 @@ class SpreadsheetController extends Controller
                     $score = $enrollment->score;
                 }
 
-                // Map marks to ScoreDetails by label_type key
+                // Map marks to ScoreDetails by label_type key, falling back to matching by
+                // label alone when that fails. The frontend tags every column it parses with
+                // "_unknown" unless the header text literally contains this app's own
+                // "(quiz)"-style suffix — which a teacher's own Excel/CSV file never will, they
+                // just write "Quiz 1". Without this fallback, every mark from a normal,
+                // human-written file silently fails to match any existing column and only the
+                // student's name/ID come through.
                 $detailMap = [];
+                $labelOnlyMap = []; // label => [ScoreDetail, ...] — used only when the exact key misses
                 $existingDetails = ScoreDetail::with('assessmentType')
                     ->where('score_id', $score->id)
                     ->get();
@@ -1179,11 +1205,45 @@ class SpreadsheetController extends Controller
                 foreach ($existingDetails as $d) {
                     $key = $d->label . '_' . ($d->assessmentType?->code ?? 'unknown');
                     $detailMap[$key] = $d;
+                    $labelOnlyMap[$d->label][] = $d;
                 }
 
                 foreach ($marks as $labelType => $markValue) {
                     // labelType is in format "Label_type" (e.g., "Quiz 1_quiz")
                     $detail = $detailMap[$labelType] ?? null;
+
+                    if (!$detail) {
+                        // Strip the "_type" suffix and retry by label alone — only when
+                        // unambiguous (exactly one existing column uses that label).
+                        $labelOnly = preg_replace('/_[^_]+$/', '', (string) $labelType);
+                        $candidates = $labelOnlyMap[$labelOnly] ?? [];
+                        if (count($candidates) === 1) {
+                            $detail = $candidates[0];
+                        }
+                    }
+
+                    if (!$detail) {
+                        // This student has no column at all for this label yet — almost
+                        // always because they're a brand-new student this same import just
+                        // created, starting with zero ScoreDetail rows. Back it in using the
+                        // canonical definition from whatever column everyone else already has
+                        // under that label, so their mark lands in the same place instead of
+                        // being silently dropped.
+                        $labelOnly = preg_replace('/_[^_]+$/', '', (string) $labelType);
+                        $canonical = $canonicalColumns->get($labelOnly);
+                        if ($canonical) {
+                            $detail = ScoreDetail::create([
+                                'score_id' => $score->id,
+                                'assessment_type_id' => $canonical['assessment_type_id'],
+                                'label' => $labelOnly,
+                                'max_score' => $canonical['max_score'],
+                                'order_number' => $canonical['order_number'],
+                                'mark' => null,
+                            ]);
+                            $labelOnlyMap[$labelOnly][] = $detail;
+                        }
+                    }
+
                     if ($detail) {
                         $mark = (float) $markValue;
                         if ($mark >= 0 && $mark <= 100) {

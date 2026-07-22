@@ -13,11 +13,14 @@ class Student extends Model
         'user_id',
         'student_id_number',
         'generation_id',
+        'is_placeholder',
     ];
 
     protected function casts(): array
     {
-        return [];
+        return [
+            'is_placeholder' => 'boolean',
+        ];
     }
 
     public function getStudentNumberAttribute(): ?string
