@@ -107,8 +107,18 @@ class PermissionSeeder extends Seeder
             'view-reports',
         ];
 
+        $adminRole = Role::where('slug', 'admin')->first();
         $teacherRole = Role::where('slug', 'teacher')->first();
         $studentRole = Role::where('slug', 'student')->first();
+
+        // Admin starts with every permission granted. Unlike other roles, admin's actual
+        // access is never gated by this (User::hasPermission() always allows admin through) —
+        // this only controls what shows up in their own nav, which they can trim from the
+        // Roles & Permissions page like any other role without any risk of locking themselves
+        // out (the Users/Roles & Permissions pages themselves are gated by role, not permission).
+        if ($adminRole) {
+            $adminRole->permissions()->sync(Permission::pluck('id'));
+        }
 
         if ($teacherRole) {
             $ids = Permission::whereIn('slug', $teacherPermissions)->pluck('id');

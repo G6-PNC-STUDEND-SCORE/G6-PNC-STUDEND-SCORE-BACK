@@ -46,19 +46,9 @@ class AuthServiceProvider extends ServiceProvider
             });
 
             foreach ($permissions as $permission) {
-                Gate::define($permission->slug, function (User $user) use ($permission) {
-                    // Admin bypass — always has full access
-                    if ($user->hasRole('admin')) {
-                        return true;
-                    }
-
-                    // Check if any of the user's roles have this permission
-                    return $user->roles()
-                        ->whereHas('permissions', function ($query) use ($permission) {
-                            $query->where('permissions.id', $permission->id);
-                        })
-                        ->exists();
-                });
+                // User::hasPermission() already handles the admin bypass and the
+                // user's single role's permission list — no need to duplicate that here.
+                Gate::define($permission->slug, fn (User $user) => $user->hasPermission($permission->slug));
             }
         } catch (\Throwable $e) {
             // If the permissions table doesn't exist yet (e.g., during migration),

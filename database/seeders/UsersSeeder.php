@@ -44,15 +44,17 @@ class UsersSeeder extends Seeder
 
         // Create Teacher users
         $teacherEmails = [
-            'yon@passerellesnumeriques.org' => 'Yon Teacher',
+            'yon.yen@passerellesnumeriques.org' => 'Yon Teacher',
             'rady.y@passerellesnumeriques.org' => 'Rady Y',
             'him.hey@passerellesnumeriques.org' => 'Him Hey',
+            'mengheang.pho@passerellesnumeriques.org' => 'Meangheang Pho',
         ];
 
         $teacherGenders = [
-            'yon@passerellesnumeriques.org' => 'Male',
-            'rady.y@passerellesnumeriques.org' => 'Female',
+            'yon.yen@passerellesnumeriques.org' => 'Male',
+            'rady.y@passerellesnumeriques.org' => 'Male',
             'him.hey@passerellesnumeriques.org' => 'Male',
+            'mengheang.pho@passerellesnumeriques.org' => 'Male',
         ];
 
         foreach ($teacherEmails as $email => $name) {

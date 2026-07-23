@@ -3,6 +3,10 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\Score;
+use App\Models\Student;
+use App\Models\StudentClassHistory;
+use App\Models\StudentSubjectEnrollment;
 use App\Models\User;
 use App\Models\RBAC\Role;
 use App\Services\ActivityLogService;
@@ -20,11 +24,7 @@ class UserController extends Controller
     // GET /users — list all users with their roles
     public function index(Request $request): JsonResponse
     {
-        $query = User::with('role:id,name,slug')
-            // Placeholder accounts auto-created as a side effect of adding a score-sheet row
-            // or importing a scores file/Google Sheet shouldn't clutter user management —
-            // they still work fine for scoring, they just don't need managing here.
-            ->whereDoesntHave('student', fn($q) => $q->where('is_placeholder', true));
+        $query = User::with('role:id,name,slug');
 
         // Search filter
         if ($search = $request->get('search')) {
@@ -47,10 +47,16 @@ class UserController extends Controller
         $users = $query->orderBy('created_at', 'desc')
             ->paginate($request->get('per_page', 20))
             ->through(function ($user) {
+                // Hide auto-generated placeholder emails — show a clean dash instead
+                $email = $user->email;
+                if (str_starts_with($email, 'pending_student_') || str_starts_with($email, 'imported_')) {
+                    $email = '—';
+                }
+
                 return [
                     'id'         => $user->id,
                     'name'       => $user->name,
-                    'email'      => $user->email,
+                    'email'      => $email,
                     'gender'     => $user->gender,
                     'status'     => $user->status,
                     'role'       => $user->role,
@@ -174,7 +180,7 @@ class UserController extends Controller
         ]);
     }
 
-    // DELETE /users/{user} — delete a user
+    // DELETE /users/{user} — delete a user and all associated data
     public function destroy(Request $request, User $user): JsonResponse
     {
         // Prevent self-deletion
@@ -185,7 +191,57 @@ class UserController extends Controller
         $userName = $user->name;
         $userEmail = $user->email;
 
-        $user->delete();
+        DB::beginTransaction();
+        try {
+            $student = Student::where('user_id', $user->id)->first();
+
+            if ($student) {
+                // Same cleanup pattern as StudentController::destroy() —
+                // student_class_histories has restrictOnDelete, so we must
+                // delete child records before the cascade can delete the student.
+
+                // 1. Get all class history IDs for this student
+                $classHistoryIds = StudentClassHistory::where('student_id', $student->id)->pluck('id');
+
+                // 2. Delete enrollments by class_history_id (with scores + details)
+                $enrollmentsByHistory = StudentSubjectEnrollment::whereIn('student_class_history_id', $classHistoryIds)->get();
+                foreach ($enrollmentsByHistory as $enrollment) {
+                    if ($enrollment->score) {
+                        $enrollment->score->details()->delete();
+                        $enrollment->score->delete();
+                    }
+                    $enrollment->delete();
+                }
+
+                // 3. Also delete any remaining enrollments by student_id
+                $enrollmentsByStudent = StudentSubjectEnrollment::where('student_id', $student->id)->get();
+                foreach ($enrollmentsByStudent as $enrollment) {
+                    if ($enrollment->score) {
+                        $enrollment->score->details()->delete();
+                        $enrollment->score->delete();
+                    }
+                    $enrollment->delete();
+                }
+
+                // 4. Delete class histories (safe now — no enrollments reference them)
+                StudentClassHistory::where('student_id', $student->id)->delete();
+
+                // 5. Delete report cards & transcripts
+                $student->reportCards()->delete();
+                $student->transcripts()->delete();
+
+                // 6. Delete the student record (now safe)
+                $student->delete();
+            }
+
+            // 7. Finally, delete the user
+            $user->delete();
+
+            DB::commit();
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return response()->json(['message' => 'Failed to delete user: ' . $e->getMessage()], 500);
+        }
 
         $this->activityLogService->logDelete(
             $request->user(),
@@ -211,21 +267,70 @@ class UserController extends Controller
 
         // Prevent self-deletion
         $ids = array_filter($request->ids, fn($id) => $id != $request->user()->id);
+        if (empty($ids)) {
+            return response()->json(['message' => 'No users to delete.'], 400);
+        }
 
-        $deleted = User::whereIn('id', $ids)->delete();
+        $deletedCount = 0;
+
+        DB::beginTransaction();
+        try {
+            foreach ($ids as $id) {
+                $user = User::find($id);
+                if (!$user) continue;
+
+                $student = Student::where('user_id', $user->id)->first();
+
+                if ($student) {
+                    // Same cleanup as destroy()
+                    $classHistoryIds = StudentClassHistory::where('student_id', $student->id)->pluck('id');
+
+                    $enrollmentsByHistory = StudentSubjectEnrollment::whereIn('student_class_history_id', $classHistoryIds)->get();
+                    foreach ($enrollmentsByHistory as $enrollment) {
+                        if ($enrollment->score) {
+                            $enrollment->score->details()->delete();
+                            $enrollment->score->delete();
+                        }
+                        $enrollment->delete();
+                    }
+
+                    $enrollmentsByStudent = StudentSubjectEnrollment::where('student_id', $student->id)->get();
+                    foreach ($enrollmentsByStudent as $enrollment) {
+                        if ($enrollment->score) {
+                            $enrollment->score->details()->delete();
+                            $enrollment->score->delete();
+                        }
+                        $enrollment->delete();
+                    }
+
+                    StudentClassHistory::where('student_id', $student->id)->delete();
+                    $student->reportCards()->delete();
+                    $student->transcripts()->delete();
+                    $student->delete();
+                }
+
+                $user->delete();
+                $deletedCount++;
+            }
+
+            DB::commit();
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return response()->json(['message' => 'Failed to delete users: ' . $e->getMessage()], 500);
+        }
 
         $this->activityLogService->logDelete(
             $request->user(),
             'Users',
-            "Bulk deleted {$deleted} user(s).",
+            "Bulk deleted {$deletedCount} user(s).",
             null,
-            ['deleted_count' => $deleted, 'ids' => $ids]
+            ['deleted_count' => $deletedCount, 'ids' => $ids]
         );
 
         return response()->json([
             'success' => true,
-            'message' => "{$deleted} user(s) deleted successfully.",
-            'data'    => ['deleted_count' => $deleted],
+            'message' => "{$deletedCount} user(s) deleted successfully.",
+            'data'    => ['deleted_count' => $deletedCount],
         ]);
     }
 

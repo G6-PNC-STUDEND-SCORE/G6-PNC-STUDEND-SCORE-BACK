@@ -5,6 +5,7 @@ use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\ChartController;
 use App\Http\Controllers\Api\ClassController;
 use App\Http\Controllers\Api\DashboardController;
+use App\Http\Controllers\Api\EmailDomainRuleController;
 use App\Http\Controllers\Api\GoogleSheetsController;
 use App\Http\Controllers\Api\GradeBoundaryController;
 use App\Http\Controllers\Api\ProfileController;
@@ -74,6 +75,14 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::delete('/roles/{role}', [PermissionController::class, 'destroy']);
         Route::post('/roles/{role}/permissions/{permission}', [PermissionController::class, 'grantPermission']);
         Route::delete('/roles/{role}/permissions/{permission}', [PermissionController::class, 'revokePermission']);
+    });
+
+    // ── ADMIN ONLY — Sign-in domain rules (Google login role assignment) ──
+    Route::middleware('role:admin')->group(function () {
+        Route::get('/email-domain-rules', [EmailDomainRuleController::class, 'index']);
+        Route::post('/email-domain-rules', [EmailDomainRuleController::class, 'store']);
+        Route::put('/email-domain-rules/{emailDomainRule}', [EmailDomainRuleController::class, 'update']);
+        Route::delete('/email-domain-rules/{emailDomainRule}', [EmailDomainRuleController::class, 'destroy']);
     });
 
     // ── Admin & Teacher — Activity Logs ───────────────────────────

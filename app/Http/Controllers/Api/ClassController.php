@@ -4,7 +4,6 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\SchoolClass;
-use App\Models\Teacher;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -13,18 +12,9 @@ class ClassController extends Controller
     // GET /classes — all authenticated users
     public function index(Request $request): JsonResponse
     {
-        $user  = $request->user();
-        $query = SchoolClass::with(['teacher.user', 'generation']);
-
-        // Teacher only sees their own classes
-        if ($user->hasRole('teacher')) {
-            $teacher = Teacher::where('user_id', $user->id)->first();
-            if ($teacher) {
-                $query->where('teacher_id', $teacher->id);
-            }
-        }
-
-        $query->orderByDesc('id');
+        // Visibility is role/permission-scoped (view-classes), not per-teacher-assignment —
+        // every teacher sees the same class list, matching what the role is granted.
+        $query = SchoolClass::with(['teacher.user', 'generation'])->orderByDesc('id');
 
         return response()->json([
             'success' => true,

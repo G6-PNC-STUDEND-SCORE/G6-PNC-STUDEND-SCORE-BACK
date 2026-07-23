@@ -15,18 +15,9 @@ class SubjectController extends Controller
     // GET /subjects — all authenticated users
     public function index(Request $request): JsonResponse
     {
-        $user  = $request->user();
+        // Visibility is role/permission-scoped (view-subjects), not per-teacher-assignment —
+        // every teacher sees the same subject list, matching what the role is granted.
         $query = Subject::with(['offerings.teacher.user', 'offerings.class', 'offerings.term', 'teachers.user']);
-
-        // Teacher only sees their own subjects (through offerings)
-        if ($user->hasRole('teacher')) {
-            $teacher = Teacher::where('user_id', $user->id)->first();
-            if ($teacher) {
-                $query->whereHas('offerings', function ($q) use ($teacher) {
-                    $q->where('teacher_id', $teacher->id);
-                });
-            }
-        }
 
         if ($request->search) {
             $query->where('name', 'like', "%{$request->search}%");

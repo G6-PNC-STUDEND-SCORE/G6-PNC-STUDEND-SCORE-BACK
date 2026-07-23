@@ -14,12 +14,18 @@ use Illuminate\Support\Facades\DB;
 
 class ScoreController extends Controller
 {
-    // GET /scores?student_id=&subject_offering_id=
+    // GET /scores?student_id=&subject_offering_id= — admin & teacher see what they ask for,
+    // a student can only ever see their own, regardless of what student_id is passed.
     public function index(Request $request): JsonResponse
     {
         $query = Score::with(['details.assessmentType', 'enrollment.student.user', 'enrollment.subjectOffering.subject', 'enrollment.subjectOffering.term']);
+        $user = $request->user();
 
-        if ($request->student_id) {
+        if ($user->hasRole('student')) {
+            $query->whereHas('enrollment.student', function ($q) use ($user) {
+                $q->where('user_id', $user->id);
+            });
+        } elseif ($request->student_id) {
             $query->whereHas('enrollment', function ($q) use ($request) {
                 $q->where('student_id', $request->student_id);
             });
@@ -37,11 +43,18 @@ class ScoreController extends Controller
     }
 
     // GET /scores/{score}
-    public function show(Score $score): JsonResponse
+    public function show(Request $request, Score $score): JsonResponse
     {
+        $score->load(['details.assessmentType', 'enrollment.student.user', 'enrollment.subjectOffering.subject', 'enrollment.subjectOffering.term']);
+
+        $user = $request->user();
+        if ($user->hasRole('student') && $score->enrollment?->student?->user_id !== $user->id) {
+            return response()->json(['message' => 'Forbidden.'], 403);
+        }
+
         return response()->json([
             'success' => true,
-            'data' => $score->load(['details.assessmentType', 'enrollment.student.user', 'enrollment.subjectOffering.subject', 'enrollment.subjectOffering.term']),
+            'data' => $score,
         ]);
     }
 
@@ -234,8 +247,13 @@ class ScoreController extends Controller
     }
 
     // GET /scores/by-enrollment/{enrollment}
-    public function byEnrollment(StudentSubjectEnrollment $enrollment): JsonResponse
+    public function byEnrollment(Request $request, StudentSubjectEnrollment $enrollment): JsonResponse
     {
+        $user = $request->user();
+        if ($user->hasRole('student') && $enrollment->loadMissing('student')->student?->user_id !== $user->id) {
+            return response()->json(['message' => 'Forbidden.'], 403);
+        }
+
         $score = Score::with(['details.assessmentType'])
             ->where('student_subject_enrollment_id', $enrollment->id)
             ->first();

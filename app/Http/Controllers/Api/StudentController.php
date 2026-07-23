@@ -29,13 +29,23 @@ class StudentController extends Controller
         if ($user->hasRole('student')) {
             $query->where('user_id', $user->id);
         } else {
-            // Students auto-created as a side effect of adding a score-sheet row or importing
-            // a scores file/Google Sheet shouldn't clutter this management list — they still
-            // work fine for scoring, they just don't need managing here.
-            $query->where('is_placeholder', false);
+            // Only show students that have at least one active enrollment
+            // in any subject/term score sheet. This ensures the student
+            // page count matches the score sheet — only students who
+            // appear in a score sheet are shown here.
+            $query->whereHas('enrollments', fn ($e) => $e->where('status', 'enrolled'));
         }
 
         $students = $query->get();
+
+        // Deduplicate by (name + student_id_number) — when the same student is added
+        // to multiple subjects via the score sheet, separate placeholder Student records
+        // are created for each subject. This ensures the same person appears only once
+        // even if they have enrollments in multiple subjects, while two different students
+        // who happen to share a name (but have different IDs) still both appear.
+        $students = $students->unique(fn ($s) =>
+            ($s->user?->name ?? '') . '|' . ($s->student_id_number ?? '')
+        )->values();
 
         return response()->json([
             'students' => $students,

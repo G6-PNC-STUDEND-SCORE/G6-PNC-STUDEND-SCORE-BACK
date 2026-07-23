@@ -35,13 +35,27 @@ class SpreadsheetController extends Controller
         }])->get();
 
         // Only show subjects that are assigned to terms via subject_term pivot
-        $result = $subjects->filter(function ($subject) {
+        $filtered = $subjects->filter(function ($subject) {
             return $subject->terms->isNotEmpty();
-        })->values()->map(function ($subject) {
-            // Use the subject_term pivot as the source of truth for which
-            // terms this subject belongs to (not offerings term_id)
-            $terms = $subject->terms->map(function ($term) use ($subject) {
+        })->values();
+
+        // ─── Batch ALL enrollment counts in ONE query ────────────────
+        // Before: N queries (one per subject-term combination).
+        // After: 1 GROUP BY query.
+        $allOfferingIds = $filtered->flatMap(fn ($s) => $s->offerings->pluck('id'));
+        $enrollmentCounts = collect();
+        if ($allOfferingIds->isNotEmpty()) {
+            $enrollmentCounts = StudentSubjectEnrollment::whereIn('subject_offering_id', $allOfferingIds)
+                ->selectRaw('subject_offering_id, COUNT(*) as count')
+                ->groupBy('subject_offering_id')
+                ->pluck('count', 'subject_offering_id');
+        }
+
+        // Build result using the batched count lookup
+        $result = $filtered->map(function ($subject) use ($enrollmentCounts) {
+            $terms = $subject->terms->map(function ($term) use ($subject, $enrollmentCounts) {
                 $offerings = $subject->offerings->where('term_id', $term->id);
+                $offeringIds = $offerings->pluck('id');
 
                 return [
                     'term_id' => $term->id,
@@ -50,10 +64,8 @@ class SpreadsheetController extends Controller
                     'academic_year' => $term->academicYear?->year ?? $term->academicYear?->name ?? null,
                     'teachers' => $offerings->pluck('teacher.user.name')->filter()->unique()->values(),
                     'classes' => $offerings->pluck('class.name')->filter()->unique()->values(),
-                    'offering_ids' => $offerings->pluck('id'),
-                    'enrollment_count' => $offerings->isNotEmpty()
-                        ? StudentSubjectEnrollment::whereIn('subject_offering_id', $offerings->pluck('id'))->count()
-                        : 0,
+                    'offering_ids' => $offeringIds,
+                    'enrollment_count' => $offeringIds->sum(fn ($id) => (int) ($enrollmentCounts[$id] ?? 0)),
                 ];
             })->values();
 
@@ -150,6 +162,7 @@ class SpreadsheetController extends Controller
             ->pluck('student_subject_enrollment_id');
         $missingScoreEnrollmentIds = $enrollmentIds->diff($existingScoreEnrollmentIds);
 
+        $didInsertScores = false;
         if ($missingScoreEnrollmentIds->isNotEmpty()) {
             $now = now();
             $scoreInserts = $missingScoreEnrollmentIds->map(fn($eid) => [
@@ -158,13 +171,7 @@ class SpreadsheetController extends Controller
                 'updated_at' => $now,
             ])->toArray();
             Score::insert($scoreInserts);
-
-            // Reload enrollments with scores now available
-            $enrollments = StudentSubjectEnrollment::with([
-                'student.user',
-                'subjectOffering.class',
-                'score.details.assessmentType',
-            ])->whereIn('subject_offering_id', $offeringIds)->get();
+            $didInsertScores = true;
         }
 
         // ─── Batch create missing score_details ─────────────────────────
@@ -199,18 +206,21 @@ class SpreadsheetController extends Controller
             }
         }
 
-        if (!empty($detailInserts)) {
+        $didInsertDetails = !empty($detailInserts);
+        if ($didInsertDetails) {
             foreach (array_chunk($detailInserts, 200) as $chunk) {
                 ScoreDetail::insert($chunk);
             }
         }
 
-        // Reload everything once more with fresh details
-        $enrollments = StudentSubjectEnrollment::with([
-            'student.user',
-            'subjectOffering.class',
-            'score.details.assessmentType',
-        ])->whereIn('subject_offering_id', $offeringIds)->get();
+        // Reload once if anything changed (not 2-3 times as before)
+        if ($didInsertScores || $didInsertDetails) {
+            $enrollments = StudentSubjectEnrollment::with([
+                'student.user',
+                'subjectOffering.class',
+                'score.details.assessmentType',
+            ])->whereIn('subject_offering_id', $offeringIds)->get();
+        }
 
         // Rebuild columns from the reloaded data so any column created above
         // (e.g. the default four) carries its real ScoreDetail id, not null.
@@ -628,7 +638,7 @@ class SpreadsheetController extends Controller
         }
 
         try {
-            return DB::transaction(function () use ($request, $offering) {
+            return DB::transaction(function () use ($request, $offering, $subject, $term) {
                 $student = null;
 
                 if ($request->filled('student_id')) {
@@ -643,13 +653,9 @@ class SpreadsheetController extends Controller
                         'status' => 'active',
                     ]);
 
-                    // Generate a student ID number (must be inside transaction for lockForUpdate)
-                    $intakeYear = now()->year;
-                    $studentNumber = app(\App\Services\StudentNumberService::class)->createSequence($intakeYear);
-
                     $student = Student::create([
                         'user_id' => $user->id,
-                        'student_id_number' => $studentNumber,
+                        'student_id_number' => null,
                         'is_placeholder' => true,
                     ]);
                 }
@@ -708,7 +714,9 @@ class SpreadsheetController extends Controller
 
     private function getOrCreateStudentClassHistory(SubjectOffering $offering, Student $student): StudentClassHistory
     {
-        $generationId = $offering->generation_id ?? $student->generation_id;
+        // subject_offerings has no generation_id column of its own (SubjectOffering::generation()
+        // is a dead relation) — the real path to an offering's generation is via its class.
+        $generationId = $offering->class?->generation_id ?? $student->generation_id;
 
         $history = StudentClassHistory::where('student_id', $student->id)
             ->where('class_id', $offering->class_id)
@@ -734,6 +742,59 @@ class SpreadsheetController extends Controller
     }
 
     /**
+     * Find an existing student globally (by student_id_number, then by name), or create a new
+     * one if no confident match exists. This is the single dedup choke point for all
+     * score-sheet import/enrollment paths — previously each one searched only within the
+     * current subject's offerings, so the same real student got a fresh duplicate row per
+     * subject they were enrolled in.
+     */
+    private function findOrCreateStudent(?string $studentIdNumber, ?string $studentName, ?int $generationId, ?string $passwordHash = null): Student
+    {
+        $studentIdNumber = $studentIdNumber !== null ? trim($studentIdNumber) : null;
+        $studentName = $studentName !== null ? trim($studentName) : null;
+
+        if ($studentIdNumber) {
+            $existing = Student::where('student_id_number', $studentIdNumber)->first();
+            if ($existing) {
+                return $existing;
+            }
+        }
+
+        if ($studentName) {
+            $matches = Student::whereHas('user', function ($q) use ($studentName) {
+                    $q->whereRaw('LOWER(TRIM(name)) = ?', [mb_strtolower($studentName)]);
+                })
+                ->when($generationId, fn ($q) => $q->where(function ($q2) use ($generationId) {
+                    $q2->where('generation_id', $generationId)->orWhereNull('generation_id');
+                }))
+                ->get();
+
+            // Only trust an unambiguous match — if this name already belongs to more than one
+            // student, don't guess which one it is; fall through to creating a new record
+            // rather than risk silently merging two different people's data.
+            if ($matches->count() === 1) {
+                return $matches->first();
+            }
+        }
+
+        $studentRoleId = Role::where('slug', 'student')->value('id');
+        $user = User::create([
+            'name' => $studentName ?: 'Imported Student',
+            'email' => 'imported_' . uniqid() . '@example.com',
+            'password' => $passwordHash ?? bcrypt('password'),
+            'role_id' => $studentRoleId,
+            'status' => 'active',
+        ]);
+
+        return Student::create([
+            'user_id' => $user->id,
+            'student_id_number' => $studentIdNumber ?: app(\App\Services\StudentNumberService::class)->createSequence(now()->year),
+            'generation_id' => $generationId,
+            'is_placeholder' => true,
+        ]);
+    }
+
+    /**
      * PUT /spreadsheet/subject/{subject}/term/{term}/enrollments/{enrollment}
      * Update student name and/or number on an enrollment.
      */
@@ -745,18 +806,80 @@ class SpreadsheetController extends Controller
         ]);
 
         try {
-            return DB::transaction(function () use ($request, $enrollment) {
+            return DB::transaction(function () use ($request, $enrollment, $subject, $term) {
                 $student = $enrollment->student;
 
                 if ($request->filled('student_name')) {
+                    $newName = $request->student_name;
+
+                    // Auto-merge: if a student with this exact name already exists ANYWHERE
+                    // (not just in this subject+term — that scoping was the actual bug, since
+                    // it meant the same real student re-duplicated once per subject), reassign
+                    // this enrollment to that student instead of creating a duplicate.
+                    if ($student && $student->user?->name !== $newName) {
+                        $offeringIds = SubjectOffering::where('subject_id', $subject->id)
+                            ->where('term_id', $term->id)
+                            ->where('status', 'active')
+                            ->pluck('id');
+                        $offering = SubjectOffering::whereIn('id', $offeringIds)->first();
+                        $generationId = $offering?->class?->generation_id;
+                        $normalizedName = mb_strtolower(trim($newName));
+
+                        $matches = Student::whereHas('user', fn ($q) => $q->whereRaw('LOWER(TRIM(name)) = ?', [$normalizedName]))
+                            ->when($generationId, fn ($q) => $q->where(fn ($q2) => $q2->where('generation_id', $generationId)->orWhereNull('generation_id')))
+                            ->where('id', '!=', $student->id)
+                            ->get();
+
+                        // Only trust an unambiguous match, and only if that student doesn't
+                        // already have an enrollment in this exact subject+term (a true
+                        // same-subject duplicate should be reconciled manually, not guessed at).
+                        $matchedStudent = $matches->count() === 1 ? $matches->first() : null;
+                        if ($matchedStudent) {
+                            $alreadyEnrolledHere = StudentSubjectEnrollment::where('student_id', $matchedStudent->id)
+                                ->whereIn('subject_offering_id', $offeringIds)
+                                ->where('id', '!=', $enrollment->id)
+                                ->exists();
+                            if ($alreadyEnrolledHere) {
+                                $matchedStudent = null;
+                            }
+                        }
+
+                        if ($matchedStudent) {
+                            // Found a matching student — reassign this enrollment
+                            $enrollment->update(['student_id' => $matchedStudent->id]);
+
+                            // Clean up the orphaned placeholder student if it has no
+                            // other enrollments and was auto-created (placeholder)
+                            $oldStudent = $student;
+                            if ($oldStudent && $oldStudent->is_placeholder) {
+                                $remaining = StudentSubjectEnrollment::where('student_id', $oldStudent->id)->count();
+                                if ($remaining === 0) {
+                                    $oldStudent->user()->delete();
+                                    $oldStudent->delete();
+                                }
+                            }
+
+                            $enrollment->load('student.user');
+                            $this->invalidateSpreadsheetCache($subject, $term);
+                            return response()->json([
+                                'success' => true,
+                                'data' => [
+                                    'student_name' => $enrollment->student?->user?->name ?? $newName,
+                                    'student_number' => $enrollment->student?->student_id_number ?? '',
+                                ],
+                            ]);
+                        }
+                    }
+
+                    // No merge needed — proceed with normal name update
                     if ($student) {
-                        $student->user->update(['name' => $request->student_name]);
+                        $student->user->update(['name' => $newName]);
                     } else {
                         // Create a new user + student for this enrollment
                         $email = 'student_' . uniqid() . '@example.com';
                         $studentRoleId = \App\Models\RBAC\Role::where('slug', 'student')->value('id');
                         $user = User::create([
-                            'name' => $request->student_name,
+                            'name' => $newName,
                             'email' => $email,
                             'password' => bcrypt('password'),
                             'role_id' => $studentRoleId,
@@ -944,44 +1067,20 @@ class SpreadsheetController extends Controller
                 $studentName = trim($data[0] ?? '');
                 $studentNumber = trim($data[1] ?? '');
 
-                // Find the enrollment by student number first, then by name
-                $enrollment = null;
-                if ($studentNumber) {
-                    $enrollment = StudentSubjectEnrollment::whereIn('subject_offering_id', $offeringIds)
-                        ->whereHas('student', fn($q) => $q->where('student_id_number', $studentNumber))
-                        ->first();
-                }
+                $offering = SubjectOffering::whereIn('id', $offeringIds)->first();
+                if (!$offering) continue;
 
-                // Fallback: try to find by student name
-                if (!$enrollment && $studentName) {
-                    $enrollment = StudentSubjectEnrollment::whereIn('subject_offering_id', $offeringIds)
-                        ->whereHas('student.user', fn($q) => $q->where('name', $studentName))
-                        ->first();
-                }
+                // Find or create the STUDENT globally — not scoped to this subject/term — so a
+                // student already enrolled in other subjects is reused instead of re-duplicated.
+                $student = $this->findOrCreateStudent($studentNumber ?: null, $studentName ?: null, $offering->class?->generation_id, $defaultPasswordHash);
+
+                // Then, separately, find or create THIS student's enrollment in this subject/term
+                // (any of its class offerings — a student only ever needs one enrollment here).
+                $enrollment = StudentSubjectEnrollment::where('student_id', $student->id)
+                    ->whereIn('subject_offering_id', $offeringIds)
+                    ->first();
 
                 if (!$enrollment) {
-                    // Student not found — create a new one!
-                    $offering = SubjectOffering::whereIn('id', $offeringIds)->first();
-                    if (!$offering) continue;
-
-                    $studentRoleId = Role::where('slug', 'student')->value('id');
-                    $user = User::create([
-                        'name' => $studentName ?: 'Imported Student',
-                        'email' => 'imported_' . uniqid() . '@example.com',
-                        'password' => $defaultPasswordHash,
-                        'role_id' => $studentRoleId,
-                        'status' => 'active',
-                    ]);
-
-                    $intakeYear = now()->year;
-                    $studentNum = app(\App\Services\StudentNumberService::class)->createSequence($intakeYear);
-
-                    $student = Student::create([
-                        'user_id' => $user->id,
-                        'student_id_number' => $studentNum,
-                        'is_placeholder' => true,
-                    ]);
-
                     $studentClassHistory = $this->getOrCreateStudentClassHistory($offering, $student);
 
                     $enrollment = StudentSubjectEnrollment::create([
@@ -1133,40 +1232,19 @@ class SpreadsheetController extends Controller
                 $studentNumber = trim($rowData['student_number'] ?? '');
                 $marks = $rowData['marks'] ?? [];
 
-                // Find existing enrollment or create new one
-                $enrollment = null;
-                if ($studentNumber) {
-                    $enrollment = StudentSubjectEnrollment::whereIn('subject_offering_id', $offeringIds)
-                        ->whereHas('student', fn($q) => $q->where('student_id_number', $studentNumber))
-                        ->first();
-                }
+                $offering = SubjectOffering::whereIn('id', $offeringIds)->first();
+                if (!$offering) continue;
 
-                if (!$enrollment && $studentName) {
-                    $enrollment = StudentSubjectEnrollment::whereIn('subject_offering_id', $offeringIds)
-                        ->whereHas('student.user', fn($q) => $q->where('name', $studentName))
-                        ->first();
-                }
+                // Find or create the STUDENT globally — not scoped to this subject/term — so a
+                // student already enrolled in other subjects is reused instead of re-duplicated.
+                $student = $this->findOrCreateStudent($studentNumber ?: null, $studentName ?: null, $offering->class?->generation_id, $defaultPasswordHash);
+
+                // Then, separately, find or create THIS student's enrollment in this subject/term.
+                $enrollment = StudentSubjectEnrollment::where('student_id', $student->id)
+                    ->whereIn('subject_offering_id', $offeringIds)
+                    ->first();
 
                 if (!$enrollment) {
-                    $offering = SubjectOffering::whereIn('id', $offeringIds)->first();
-                    if (!$offering) continue;
-
-                    $studentRoleId = Role::where('slug', 'student')->value('id');
-                    $user = User::create([
-                        'name' => $studentName ?: 'Imported Student',
-                        'email' => 'imported_' . uniqid() . '@example.com',
-                        'password' => $defaultPasswordHash,
-                        'role_id' => $studentRoleId,
-                        'status' => 'active',
-                    ]);
-
-                    $studentNum = app(\App\Services\StudentNumberService::class)->createSequence(now()->year);
-                    $student = Student::create([
-                        'user_id' => $user->id,
-                        'student_id_number' => $studentNum,
-                        'is_placeholder' => true,
-                    ]);
-
                     $studentClassHistory = $this->getOrCreateStudentClassHistory($offering, $student);
                     $enrollment = StudentSubjectEnrollment::create([
                         'student_id' => $student->id,
