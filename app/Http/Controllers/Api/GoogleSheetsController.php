@@ -750,6 +750,13 @@ class GoogleSheetsController extends Controller
         /** @var User $user */
         $user = $request->user();
 
+        // If the request already supplied a still-valid access token, use it directly —
+        // no need to round-trip to Google's token endpoint on every single call.
+        if ($request->access_token && $user && $user->google_token_expires_at
+            && now()->addSeconds(60)->lt($user->google_token_expires_at)) {
+            return $request->access_token;
+        }
+
         // If user has a stored refresh token, use it to get a fresh access token
         if ($user && $user->google_refresh_token) {
             $clientId = config('services.google.client_id');
