@@ -178,7 +178,7 @@ class UserManagementTest extends TestCase
         $ids = $users->pluck('id')->toArray();
 
         $response = $this->actingAs($this->adminUser, 'sanctum')
-            ->deleteJson('/api/users/bulk-delete', [
+            ->postJson('/api/users/bulk-delete', [
                 'ids' => $ids,
             ]);
 

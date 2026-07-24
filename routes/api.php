@@ -15,6 +15,7 @@ use App\Http\Controllers\Api\ScoreController;
 use App\Http\Controllers\Api\SpreadsheetController;
 use App\Http\Controllers\Api\StudentController;
 use App\Http\Controllers\Api\SubjectController;
+use App\Http\Controllers\Api\TeacherController;
 use App\Http\Controllers\Api\UserController;
 use Illuminate\Support\Facades\Route;
 
@@ -56,12 +57,24 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::middleware('role:admin')->group(function () {
         Route::get('/users', [UserController::class, 'index']);
         Route::get('/users/roles', [UserController::class, 'roles']);
-        Route::delete('/users/bulk-delete', [UserController::class, 'bulkDelete']);
+        Route::post('/users/bulk-delete', [UserController::class, 'bulkDelete']);
         Route::get('/users/{user}', [UserController::class, 'show']);
         Route::post('/users', [UserController::class, 'store']);
         Route::put('/users/{user}', [UserController::class, 'update']);
         Route::patch('/users/{user}', [UserController::class, 'update']);
         Route::delete('/users/{user}', [UserController::class, 'destroy']);
+    });
+
+    // ── ADMIN ONLY — Teachers ──────────────────────────────────
+    Route::middleware('role:admin')->group(function () {
+        Route::get('/teachers', [TeacherController::class, 'index']);
+        Route::get('/teachers/departments', [TeacherController::class, 'departments']);
+        Route::get('/teachers/{teacher}', [TeacherController::class, 'show']);
+        Route::post('/teachers', [TeacherController::class, 'store']);
+        Route::put('/teachers/{teacher}', [TeacherController::class, 'update']);
+        Route::patch('/teachers/{teacher}', [TeacherController::class, 'update']);
+        Route::delete('/teachers/{teacher}', [TeacherController::class, 'destroy']);
+        Route::post('/teachers/bulk-delete', [TeacherController::class, 'bulkDelete']);
     });
 
     // ── ADMIN ONLY — Permission & Role Management ────────────────
@@ -106,7 +119,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/subjects', [SubjectController::class, 'store'])->middleware('permission:create-subjects');
     Route::put('/subjects/{subject}', [SubjectController::class, 'update'])->middleware('permission:update-subjects');
     Route::delete('/subjects/{subject}', [SubjectController::class, 'destroy'])->middleware('permission:delete-subjects');
-    Route::get('/teachers', [SubjectController::class, 'teachers'])->middleware('permission:view-teachers');
+    Route::get('/teacher-options', [SubjectController::class, 'teachers'])->middleware('permission:view-teachers');
 
     // ── Generations ──────────────────────────────────────────────
     Route::get('/generations', function () {
