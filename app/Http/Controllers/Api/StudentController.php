@@ -29,11 +29,13 @@ class StudentController extends Controller
         if ($user->hasRole('student')) {
             $query->where('user_id', $user->id);
         } else {
-            // Only show students that have at least one active enrollment
-            // in any subject/term score sheet. This ensures the student
-            // page count matches the score sheet — only students who
-            // appear in a score sheet are shown here.
-            $query->whereHas('enrollments', fn ($e) => $e->where('status', 'enrolled'));
+            // Only show real students (not placeholders created via score sheet imports)
+            // and who have at least one active enrollment.
+            $query->where(function ($q) {
+                      $q->whereNull('is_placeholder')
+                        ->orWhere('is_placeholder', false);
+                  })
+                  ->whereHas('enrollments', fn ($e) => $e->where('status', 'enrolled'));
         }
 
         $students = $query->get();

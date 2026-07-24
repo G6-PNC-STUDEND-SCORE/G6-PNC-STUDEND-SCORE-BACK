@@ -26,6 +26,14 @@ class UserController extends Controller
     {
         $query = User::with('role:id,name,slug');
 
+        // Exclude placeholder users (auto-created via scoresheet import/add-row)
+        // These have synthetic emails like pending_student_*@example.com or imported_*@example.com
+        $query->where(function ($q) {
+            $q->where('email', 'not like', 'pending_student_%@example.com')
+              ->where('email', 'not like', 'imported_%@example.com')
+              ->where('email', 'not like', 'student_%@example.com');
+        });
+
         // Search filter
         if ($search = $request->get('search')) {
             $query->where(function ($q) use ($search) {
@@ -47,16 +55,11 @@ class UserController extends Controller
         $users = $query->orderBy('created_at', 'desc')
             ->paginate($request->get('per_page', 20))
             ->through(function ($user) {
-                // Hide auto-generated placeholder emails — show a clean dash instead
-                $email = $user->email;
-                if (str_starts_with($email, 'pending_student_') || str_starts_with($email, 'imported_')) {
-                    $email = '—';
-                }
 
                 return [
                     'id'         => $user->id,
                     'name'       => $user->name,
-                    'email'      => $email,
+                    'email'      => $user->email,
                     'gender'     => $user->gender,
                     'status'     => $user->status,
                     'role'       => $user->role,

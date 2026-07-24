@@ -626,6 +626,8 @@ class SpreadsheetController extends Controller
     {
         $request->validate([
             'student_id' => 'nullable|integer|exists:students,id',
+            'student_name' => 'nullable|string|max:100',
+            'student_number' => 'nullable|string|max:50',
         ]);
 
         $offering = SubjectOffering::where('subject_id', $subject->id)
@@ -644,23 +646,33 @@ class SpreadsheetController extends Controller
                 if ($request->filled('student_id')) {
                     $student = Student::find($request->student_id);
                 } else {
-                    $studentRoleId = Role::where('slug', 'student')->value('id');
-                    $user = User::create([
-                        'name' => '',
-                        'email' => 'pending_student_' . uniqid() . '@example.com',
-                        'password' => bcrypt('password'),
-                        'role_id' => $studentRoleId,
-                        'status' => 'active',
-                    ]);
-
-                    $student = Student::create([
-                        'user_id' => $user->id,
-                        'student_id_number' => null,
-                        'is_placeholder' => true,
-                    ]);
+                    // Use findOrCreateStudent to deduplicate globally — checks by
+                    // student_id_number first, then by name+generation, so the same
+                    // student added to multiple subjects gets one record, not N.
+                    $student = $this->findOrCreateStudent(
+                        $request->student_number ?: null,
+                        $request->student_name ?: null,
+                        $offering->class?->generation_id
+                    );
                 }
 
                 $studentClassHistory = $this->getOrCreateStudentClassHistory($offering, $student);
+
+                // Check if this student is already enrolled in this subject+term
+                $existingEnrollment = StudentSubjectEnrollment::where('student_id', $student->id)
+                    ->where('subject_offering_id', $offering->id)
+                    ->first();
+
+                if ($existingEnrollment) {
+                    return response()->json([
+                        'success' => true,
+                        'data' => [
+                            'id' => $existingEnrollment->id,
+                            'student_id' => $student->id,
+                            'student_number' => $student->student_id_number ?? '',
+                        ],
+                    ]);
+                }
 
                 $enrollment = StudentSubjectEnrollment::create([
                     'student_id' => $student->id,
