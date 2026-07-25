@@ -75,6 +75,28 @@ class PermissionSeeder extends Seeder
             ['group' => 'users', 'slug' => 'update-users', 'name' => 'Update Users'],
             ['group' => 'users', 'slug' => 'delete-users', 'name' => 'Delete Users'],
 
+            // Sign-in Domains (email domain -> role rules used by Google login)
+            ['group' => 'email-domain-rules', 'slug' => 'view-email-domain-rules',   'name' => 'View Sign-in Domains'],
+            ['group' => 'email-domain-rules', 'slug' => 'create-email-domain-rules', 'name' => 'Create Sign-in Domains'],
+            ['group' => 'email-domain-rules', 'slug' => 'update-email-domain-rules', 'name' => 'Update Sign-in Domains'],
+            ['group' => 'email-domain-rules', 'slug' => 'delete-email-domain-rules', 'name' => 'Delete Sign-in Domains'],
+
+            // Grade Boundaries (A/B/C/... cutoffs) — no create/delete, boundaries are a fixed set
+            ['group' => 'grade-boundaries', 'slug' => 'view-grade-boundaries',   'name' => 'View Grade Boundaries'],
+            ['group' => 'grade-boundaries', 'slug' => 'update-grade-boundaries', 'name' => 'Update Grade Boundaries'],
+
+            // Assessment Types (quiz/assignment/midterm/final weighting)
+            ['group' => 'assessment-types', 'slug' => 'view-assessment-types',   'name' => 'View Assessment Types'],
+            ['group' => 'assessment-types', 'slug' => 'create-assessment-types', 'name' => 'Create Assessment Types'],
+            ['group' => 'assessment-types', 'slug' => 'update-assessment-types', 'name' => 'Update Assessment Types'],
+            ['group' => 'assessment-types', 'slug' => 'delete-assessment-types', 'name' => 'Delete Assessment Types'],
+
+            // Terms (academic term structure)
+            ['group' => 'terms', 'slug' => 'view-terms',   'name' => 'View Terms'],
+            ['group' => 'terms', 'slug' => 'create-terms', 'name' => 'Create Terms'],
+            ['group' => 'terms', 'slug' => 'update-terms', 'name' => 'Update Terms'],
+            ['group' => 'terms', 'slug' => 'delete-terms', 'name' => 'Delete Terms'],
+
             // System
             ['group' => 'system', 'slug' => 'manage-roles-permissions', 'name' => 'Manage Roles & Permissions'],
             ['group' => 'system', 'slug' => 'view-own-student-info', 'name' => 'View Own Student Info'],
@@ -96,6 +118,11 @@ class PermissionSeeder extends Seeder
             'view-report-cards', 'generate-report-cards',
             'view-transcripts', 'generate-transcripts',
             'view-reports', 'export-reports',
+            'view-activity-logs',
+            // These four were previously open to any authenticated user (no permission
+            // existed to gate them) — granted here so tightening that gate doesn't regress
+            // a teacher's existing ability to read them.
+            'view-generations', 'view-assessment-types', 'view-terms', 'view-grade-boundaries',
         ];
 
         // Default permissions for student role
@@ -105,6 +132,8 @@ class PermissionSeeder extends Seeder
             'view-report-cards',
             'view-transcripts',
             'view-reports',
+            // See the comment on $teacherPermissions above — same reasoning.
+            'view-generations', 'view-assessment-types', 'view-terms', 'view-grade-boundaries',
         ];
 
         $adminRole = Role::where('slug', 'admin')->first();
@@ -115,7 +144,10 @@ class PermissionSeeder extends Seeder
         // access is never gated by this (User::hasPermission() always allows admin through) —
         // this only controls what shows up in their own nav, which they can trim from the
         // Roles & Permissions page like any other role without any risk of locking themselves
-        // out (the Users/Roles & Permissions pages themselves are gated by role, not permission).
+        // out. Users/Roles & Permissions/Sign-in Domains are permission-gated like everything
+        // else now (view-users, manage-roles-permissions, view-email-domain-rules, etc.) —
+        // admin keeps access purely because admin bypasses every permission check, not because
+        // these routes are hardcoded to role:admin anymore.
         if ($adminRole) {
             $adminRole->permissions()->sync(Permission::pluck('id'));
         }

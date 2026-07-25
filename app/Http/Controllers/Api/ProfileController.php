@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\Subject;
 use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -16,7 +17,7 @@ class ProfileController extends Controller
      */
     public function show(Request $request): JsonResponse
     {
-        $user = $request->user()->load('role');
+        $user = $request->user()->load('role.permissions');
 
         return response()->json([
             'success' => true,
@@ -34,9 +35,9 @@ class ProfileController extends Controller
         $validator = Validator::make($request->all(), [
             'name' => 'sometimes|string|max:255',
             'email' => 'sometimes|email|max:255|unique:users,email,' . $user->id,
-            'department' => 'nullable|string|max:255',
-            'school' => 'nullable|string|max:255',
             'bio' => 'nullable|string|max:1000',
+            'gender' => 'nullable|in:Male,Female,Other',
+            'date_of_birth' => 'nullable|date|before:today',
         ]);
 
         if ($validator->fails()) {
@@ -50,9 +51,9 @@ class ProfileController extends Controller
         $user->update($request->only([
             'name',
             'email',
-            'department',
-            'school',
             'bio',
+            'gender',
+            'date_of_birth',
         ]));
 
         // Handle avatar upload
@@ -81,7 +82,7 @@ class ProfileController extends Controller
             $user->save();
         }
 
-        $user->load('role');
+        $user->load('role.permissions');
 
         return response()->json([
             'success' => true,
@@ -101,7 +102,33 @@ class ProfileController extends Controller
         // Remove the nested relation so the string `role` below is authoritative.
         unset($data['role']);
 
-        $data['role'] = $user->role?->slug ?? 'user';
+        $roleSlug = $user->role?->slug ?? 'user';
+        $data['role'] = $roleSlug;
+        $data['permissions'] = $user->role?->permissions->pluck('slug')->all() ?? [];
+
+        // Role-specific info the profile page shows beyond the shared user fields —
+        // a teacher cares about what they teach, a student about their own enrollment.
+        if ($roleSlug === 'teacher') {
+            $teacher = $user->teacher()->with(['department', 'classes'])->first();
+            if ($teacher) {
+                $data['teacher_info'] = [
+                    'department' => $teacher->department?->name,
+                    'classes' => $teacher->classes->pluck('name')->all(),
+                    'subjects' => Subject::whereHas('teachers', fn ($q) => $q->where('teachers.id', $teacher->id))
+                        ->pluck('name')->all(),
+                ];
+            }
+        } elseif ($roleSlug === 'student') {
+            $student = $user->student()->with(['generation', 'classHistories.class'])->first();
+            if ($student) {
+                $activeClass = $student->classHistories->firstWhere('status', 'active');
+                $data['student_info'] = [
+                    'student_id_number' => $student->student_id_number,
+                    'generation' => $student->generation?->name,
+                    'class' => $activeClass?->class?->name,
+                ];
+            }
+        }
 
         return $data;
     }

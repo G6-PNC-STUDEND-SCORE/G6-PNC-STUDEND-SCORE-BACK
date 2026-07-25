@@ -31,10 +31,12 @@ Route::post('/google-login', [AuthController::class, 'googleLogin']);
 Route::post('/forgot-password', [AuthController::class, 'forgotPassword']);
 Route::post('/reset-password', [AuthController::class, 'resetPassword']);
 
-Route::get('/chart/grade-distribution', [ChartController::class, 'gradeDistribution']);
-Route::get('/chart/subject-performance', [ChartController::class, 'subjectPerformance']);
-Route::get('/chart/summary', [ChartController::class, 'summary']);
-Route::get('/chart/trends', [ChartController::class, 'trends']);
+// These were reachable with zero authentication (no auth:sanctum at all) — same class of
+// student/grade data as /dashboard just below, which already requires it.
+Route::get('/chart/grade-distribution', [ChartController::class, 'gradeDistribution'])->middleware('auth:sanctum');
+Route::get('/chart/subject-performance', [ChartController::class, 'subjectPerformance'])->middleware('auth:sanctum');
+Route::get('/chart/summary', [ChartController::class, 'summary'])->middleware('auth:sanctum');
+Route::get('/chart/trends', [ChartController::class, 'trends'])->middleware('auth:sanctum');
 
 
 Route::get('/dashboard', [DashboardController::class, 'index'])->middleware('auth:sanctum');
@@ -59,19 +61,17 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/student/transcript/download', [StudentPortalController::class, 'transcriptDownload']);
     });
 
-    // ── ADMIN ONLY — Users ───────────────────────────────────────
-    Route::middleware('role:admin')->group(function () {
-        Route::get('/users', [UserController::class, 'index']);
-        Route::get('/users/roles', [UserController::class, 'roles']);
-        Route::get('/users/{user}', [UserController::class, 'show']);
-        Route::post('/users', [UserController::class, 'store']);
-        Route::put('/users/{user}', [UserController::class, 'update']);
-        Route::delete('/users/{user}', [UserController::class, 'destroy']);
-        Route::post('/users/bulk-delete', [UserController::class, 'bulkDelete']);
-    });
+    // ── Users ──────────────────────────────────────────────────────
+    Route::get('/users', [UserController::class, 'index'])->middleware('permission:view-users');
+    Route::get('/users/roles', [UserController::class, 'roles'])->middleware('permission:view-users');
+    Route::get('/users/{user}', [UserController::class, 'show'])->middleware('permission:view-users');
+    Route::post('/users', [UserController::class, 'store'])->middleware('permission:create-users');
+    Route::put('/users/{user}', [UserController::class, 'update'])->middleware('permission:update-users');
+    Route::delete('/users/{user}', [UserController::class, 'destroy'])->middleware('permission:delete-users');
+    Route::post('/users/bulk-delete', [UserController::class, 'bulkDelete'])->middleware('permission:delete-users');
 
-    // ── ADMIN ONLY — Permission & Role Management ────────────────
-    Route::middleware('role:admin')->group(function () {
+    // ── Permission & Role Management ──────────────────────────────
+    Route::middleware('permission:manage-roles-permissions')->group(function () {
         Route::get('/permissions', [PermissionController::class, 'index']);
         Route::get('/roles', [PermissionController::class, 'roles']);
         Route::post('/roles', [PermissionController::class, 'store']);
@@ -87,19 +87,15 @@ Route::middleware('auth:sanctum')->group(function () {
     // students/scores, not just admin) to pick which domain new student accounts get ──
     Route::get('/email-domain-rules/student-domains', [EmailDomainRuleController::class, 'studentDomains'])->middleware('permission:create-scores');
 
-    // ── ADMIN ONLY — Sign-in domain rules (Google login role assignment) ──
-    Route::middleware('role:admin')->group(function () {
-        Route::get('/email-domain-rules', [EmailDomainRuleController::class, 'index']);
-        Route::post('/email-domain-rules', [EmailDomainRuleController::class, 'store']);
-        Route::put('/email-domain-rules/{emailDomainRule}', [EmailDomainRuleController::class, 'update']);
-        Route::delete('/email-domain-rules/{emailDomainRule}', [EmailDomainRuleController::class, 'destroy']);
-    });
+    // ── Sign-in domain rules (Google login role assignment) ────────
+    Route::get('/email-domain-rules', [EmailDomainRuleController::class, 'index'])->middleware('permission:view-email-domain-rules');
+    Route::post('/email-domain-rules', [EmailDomainRuleController::class, 'store'])->middleware('permission:create-email-domain-rules');
+    Route::put('/email-domain-rules/{emailDomainRule}', [EmailDomainRuleController::class, 'update'])->middleware('permission:update-email-domain-rules');
+    Route::delete('/email-domain-rules/{emailDomainRule}', [EmailDomainRuleController::class, 'destroy'])->middleware('permission:delete-email-domain-rules');
 
-    // ── Admin & Teacher — Activity Logs ───────────────────────────
-    Route::middleware('role:admin,teacher')->group(function () {
-        Route::get('/chart/recent-activity', [ChartController::class, 'recentActivity']);
-        Route::get('/activity-logs', [ActivityLogController::class, 'index']);
-    });
+    // ── Activity Logs ────────────────────────────────────────────
+    Route::get('/chart/recent-activity', [ChartController::class, 'recentActivity'])->middleware('permission:view-activity-logs');
+    Route::get('/activity-logs', [ActivityLogController::class, 'index'])->middleware('permission:view-activity-logs');
 
     // ── Students ─────────────────────────────────────────────────
     Route::get('/students', [StudentController::class, 'index'])->middleware('permission:view-students');
@@ -171,26 +167,26 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::delete('/spreadsheet/subject/{subject}/term/{term}/enrollments/{enrollment}', [SpreadsheetController::class, 'deleteEnrollment'])->middleware('permission:delete-scores');
 
     // ── Grade Boundaries ─────────────────────────────────────────
-    Route::get('/grade-boundaries', [GradeBoundaryController::class, 'index']);
-    Route::put('/grade-boundaries/{gradeBoundary}', [GradeBoundaryController::class, 'update'])->middleware('role:admin');
+    Route::get('/grade-boundaries', [GradeBoundaryController::class, 'index'])->middleware('permission:view-grade-boundaries');
+    Route::put('/grade-boundaries/{gradeBoundary}', [GradeBoundaryController::class, 'update'])->middleware('permission:update-grade-boundaries');
 
     // ── Assessment Types ────────────────────────────────────────────
-    Route::get('/assessment-types', [AssessmentTypeController::class, 'index']);
-    Route::post('/assessment-types', [AssessmentTypeController::class, 'store'])->middleware('role:admin');
-    Route::put('/assessment-types/{assessmentType}', [AssessmentTypeController::class, 'update'])->middleware('role:admin');
-    Route::delete('/assessment-types/{assessmentType}', [AssessmentTypeController::class, 'destroy'])->middleware('role:admin');
+    Route::get('/assessment-types', [AssessmentTypeController::class, 'index'])->middleware('permission:view-assessment-types');
+    Route::post('/assessment-types', [AssessmentTypeController::class, 'store'])->middleware('permission:create-assessment-types');
+    Route::put('/assessment-types/{assessmentType}', [AssessmentTypeController::class, 'update'])->middleware('permission:update-assessment-types');
+    Route::delete('/assessment-types/{assessmentType}', [AssessmentTypeController::class, 'destroy'])->middleware('permission:delete-assessment-types');
 
     // ── Terms ────────────────────────────────────────────────────
-    Route::get('/terms', [TermController::class, 'index']);
-    Route::post('/terms', [TermController::class, 'store'])->middleware('role:admin');
-    Route::put('/terms/{term}', [TermController::class, 'update'])->middleware('role:admin');
-    Route::delete('/terms/{term}', [TermController::class, 'destroy'])->middleware('role:admin');
+    Route::get('/terms', [TermController::class, 'index'])->middleware('permission:view-terms');
+    Route::post('/terms', [TermController::class, 'store'])->middleware('permission:create-terms');
+    Route::put('/terms/{term}', [TermController::class, 'update'])->middleware('permission:update-terms');
+    Route::delete('/terms/{term}', [TermController::class, 'destroy'])->middleware('permission:delete-terms');
 
     // ── Generations ──────────────────────────────────────────────
-    Route::get('/generations', [GenerationController::class, 'index']);
-    Route::post('/generations', [GenerationController::class, 'store'])->middleware('role:admin');
-    Route::put('/generations/{generation}', [GenerationController::class, 'update'])->middleware('role:admin');
-    Route::delete('/generations/{generation}', [GenerationController::class, 'destroy'])->middleware('role:admin');
+    Route::get('/generations', [GenerationController::class, 'index'])->middleware('permission:view-generations');
+    Route::post('/generations', [GenerationController::class, 'store'])->middleware('permission:create-generations');
+    Route::put('/generations/{generation}', [GenerationController::class, 'update'])->middleware('permission:update-generations');
+    Route::delete('/generations/{generation}', [GenerationController::class, 'destroy'])->middleware('permission:delete-generations');
 
     // ── Report Cards ─────────────────────────────────────────────
     Route::get('/report-cards', [ReportCardController::class, 'index'])->middleware('permission:view-report-cards');
@@ -204,9 +200,13 @@ Route::middleware('auth:sanctum')->group(function () {
     // ── Google Sheets OAuth Integration ────────────────────────────
     Route::get('/google-sheets/config', [GoogleSheetsController::class, 'config']);
     Route::get('/google-sheets/status', [GoogleSheetsController::class, 'status']);
-    Route::post('/google-sheets/token', [GoogleSheetsController::class, 'exchangeToken']);
-    Route::post('/google-sheets/refresh', [GoogleSheetsController::class, 'refreshToken']);
-    Route::post('/google-sheets/disconnect', [GoogleSheetsController::class, 'disconnect']);
+    // These three touch the app-wide Google OAuth connection (exchange/refresh/revoke a shared
+    // credential) — previously reachable by any authenticated user, including a student. Gated
+    // at the same level as the rest of the Google Sheets feature (create/import require
+    // view-scores/create-scores) rather than left open.
+    Route::post('/google-sheets/token', [GoogleSheetsController::class, 'exchangeToken'])->middleware('permission:create-scores');
+    Route::post('/google-sheets/refresh', [GoogleSheetsController::class, 'refreshToken'])->middleware('permission:create-scores');
+    Route::post('/google-sheets/disconnect', [GoogleSheetsController::class, 'disconnect'])->middleware('permission:create-scores');
     Route::post('/google-sheets/create', [GoogleSheetsController::class, 'createSheet'])->middleware('permission:view-scores');
     Route::post('/google-sheets/push', [GoogleSheetsController::class, 'pushSheet'])->middleware('permission:view-scores');
     Route::post('/google-sheets/import', [GoogleSheetsController::class, 'importSheet'])->middleware('permission:create-scores');

@@ -25,8 +25,6 @@ class User extends Authenticatable
         'avatar',
         'google_id',
         'role_id',
-        'department',
-        'school',
         'bio',
         'status',
         'last_login_at',

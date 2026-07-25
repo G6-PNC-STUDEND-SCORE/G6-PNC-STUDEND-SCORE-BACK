@@ -34,6 +34,8 @@ class AuthController extends Controller
             return response()->json(['message' => 'The provided credentials are incorrect.'], 401);
         }
 
+        $user->update(['last_login_at' => now()]);
+
         return response()->json([
             'user' => $this->userData($user),
             'token' => $user->createToken('api-token')->plainTextToken,
@@ -116,6 +118,8 @@ class AuthController extends Controller
                     });
                 }
             }
+
+            $user->update(['last_login_at' => now()]);
 
             $token = $user->createToken('api-token')->plainTextToken;
 

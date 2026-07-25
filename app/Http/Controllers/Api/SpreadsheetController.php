@@ -995,6 +995,27 @@ class SpreadsheetController extends Controller
         // the row count, which was blowing past PHP's max_execution_time on larger imports.
         $defaultPasswordHash = bcrypt('password');
 
+        // Canonical column set for this subject+term, keyed by label — used to backfill a
+        // ScoreDetail row for students who don't already have one for a given column (e.g. a
+        // brand-new student this same import just created). See resolveOrCreateScoreDetail().
+        $canonicalColumns = collect();
+        StudentSubjectEnrollment::with('score.details.assessmentType')
+            ->whereIn('subject_offering_id', $offeringIds)
+            ->get()
+            ->each(function ($enr) use ($canonicalColumns) {
+                if ($enr->score && $enr->score->details) {
+                    foreach ($enr->score->details as $d) {
+                        if (!$canonicalColumns->has($d->label)) {
+                            $canonicalColumns->put($d->label, [
+                                'assessment_type_id' => $d->assessment_type_id,
+                                'max_score' => $d->max_score,
+                                'order_number' => $d->order_number ?? 0,
+                            ]);
+                        }
+                    }
+                }
+            });
+
         DB::beginTransaction();
         try {
             for ($i = 1; $i < count($lines); $i++) {
@@ -1058,21 +1079,13 @@ class SpreadsheetController extends Controller
                     $labelOnlyMap[$d->label][] = $d;
                 }
 
-                // Map CSV columns to ScoreDetails by label+type, falling back to label alone
-                // (when unambiguous) for a header like "Quiz 1" that never had a real type to
-                // begin with — see the parsing above, which tags those as type "unknown".
+                // Map CSV columns to ScoreDetails by label+type, creating the column (from the
+                // canonical definition, or from this column's own type if it's brand new) when
+                // this student has none yet — see resolveOrCreateScoreDetail().
                 foreach ($csvColumnMap as $csvIdx => $colInfo) {
                     if (!isset($data[$csvIdx]) || $data[$csvIdx] === '') continue;
 
-                    $lookupKey = $colInfo['label'] . '_' . $colInfo['type'];
-                    $detail = $detailMap[$lookupKey] ?? null;
-
-                    if (!$detail) {
-                        $candidates = $labelOnlyMap[$colInfo['label']] ?? [];
-                        if (count($candidates) === 1) {
-                            $detail = $candidates[0];
-                        }
-                    }
+                    $detail = $this->resolveOrCreateScoreDetail($score, $detailMap, $labelOnlyMap, $canonicalColumns, $colInfo['label'], $colInfo['type']);
 
                     if ($detail) {
                         $mark = (float) $data[$csvIdx];
@@ -1229,39 +1242,11 @@ class SpreadsheetController extends Controller
 
                 foreach ($marks as $labelType => $markValue) {
                     // labelType is in format "Label_type" (e.g., "Quiz 1_quiz")
-                    $detail = $detailMap[$labelType] ?? null;
+                    $labelOnly = preg_replace('/_[^_]+$/', '', (string) $labelType);
+                    preg_match('/_([^_]+)$/', (string) $labelType, $typeMatch);
+                    $type = $typeMatch[1] ?? 'unknown';
 
-                    if (!$detail) {
-                        // Strip the "_type" suffix and retry by label alone — only when
-                        // unambiguous (exactly one existing column uses that label).
-                        $labelOnly = preg_replace('/_[^_]+$/', '', (string) $labelType);
-                        $candidates = $labelOnlyMap[$labelOnly] ?? [];
-                        if (count($candidates) === 1) {
-                            $detail = $candidates[0];
-                        }
-                    }
-
-                    if (!$detail) {
-                        // This student has no column at all for this label yet — almost
-                        // always because they're a brand-new student this same import just
-                        // created, starting with zero ScoreDetail rows. Back it in using the
-                        // canonical definition from whatever column everyone else already has
-                        // under that label, so their mark lands in the same place instead of
-                        // being silently dropped.
-                        $labelOnly = preg_replace('/_[^_]+$/', '', (string) $labelType);
-                        $canonical = $canonicalColumns->get($labelOnly);
-                        if ($canonical) {
-                            $detail = ScoreDetail::create([
-                                'score_id' => $score->id,
-                                'assessment_type_id' => $canonical['assessment_type_id'],
-                                'label' => $labelOnly,
-                                'max_score' => $canonical['max_score'],
-                                'order_number' => $canonical['order_number'],
-                                'mark' => null,
-                            ]);
-                            $labelOnlyMap[$labelOnly][] = $detail;
-                        }
-                    }
+                    $detail = $this->resolveOrCreateScoreDetail($score, $detailMap, $labelOnlyMap, $canonicalColumns, $labelOnly, $type);
 
                     if ($detail) {
                         $mark = (float) $markValue;
@@ -1285,6 +1270,67 @@ class SpreadsheetController extends Controller
             DB::rollBack();
             return response()->json(['message' => $e->getMessage()], 500);
         }
+    }
+
+    /**
+     * Find the ScoreDetail this student already has for a given label, or create one — used by
+     * every import path so a mark always lands somewhere instead of being silently dropped when
+     * this is the first time anyone (in this row, or in this subject/term at all) has a column
+     * with this label. $canonicalColumns is mutated in place as new labels are created, so later
+     * rows in the same import benefit from columns the earlier rows just created — it isn't just
+     * a frozen snapshot of columns that existed before the import started.
+     */
+    private function resolveOrCreateScoreDetail(
+        Score $score,
+        array $detailMap,
+        array &$labelOnlyMap,
+        \Illuminate\Support\Collection $canonicalColumns,
+        string $label,
+        string $type
+    ): ?ScoreDetail {
+        $lookupKey = $label . '_' . $type;
+        if (isset($detailMap[$lookupKey])) {
+            return $detailMap[$lookupKey];
+        }
+
+        $candidates = $labelOnlyMap[$label] ?? [];
+        if (count($candidates) === 1) {
+            return $candidates[0];
+        }
+        if (count($candidates) > 1) {
+            // More than one column already shares this label with a different type —
+            // don't guess which one this mark belongs to.
+            return null;
+        }
+
+        // No column at all for this label yet on this student. Reuse the definition another
+        // student in this subject/term already has for the same label (so everyone's "Quiz 1"
+        // column matches up), or derive one fresh from this column's own type if this is the
+        // very first time anyone has used this label.
+        $canonical = $canonicalColumns->get($label);
+        if (!$canonical) {
+            $assessmentType = ($type && $type !== 'unknown')
+                ? AssessmentType::where('code', $type)->first()
+                : null;
+            $canonical = [
+                'assessment_type_id' => $assessmentType?->id,
+                'max_score' => 100,
+                'order_number' => $canonicalColumns->count(),
+            ];
+            $canonicalColumns->put($label, $canonical);
+        }
+
+        $detail = ScoreDetail::create([
+            'score_id' => $score->id,
+            'assessment_type_id' => $canonical['assessment_type_id'],
+            'label' => $label,
+            'max_score' => $canonical['max_score'],
+            'order_number' => $canonical['order_number'],
+            'mark' => null,
+        ]);
+        $labelOnlyMap[$label][] = $detail;
+
+        return $detail;
     }
 
     private function recalculateTotal(?int $scoreId): void
