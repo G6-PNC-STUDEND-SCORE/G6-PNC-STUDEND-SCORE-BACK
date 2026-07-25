@@ -8,6 +8,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 class Generation extends Model
 {
     protected $fillable = [
+        'name',
         'year',
         'is_current',
     ];

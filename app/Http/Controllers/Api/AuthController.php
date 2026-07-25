@@ -8,8 +8,8 @@ use App\Models\Student;
 use App\Models\Teacher;
 use App\Models\User;
 use App\Notifications\PasswordResetNotification;
+use App\Services\Auth\GoogleIdTokenVerifierInterface;
 use App\Services\StudentNumberService;
-use Google\Client as GoogleClient;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -20,6 +20,10 @@ use Illuminate\Support\Str;
 
 class AuthController extends Controller
 {
+    public function __construct(
+        private readonly GoogleIdTokenVerifierInterface $googleIdTokenVerifier
+    ) {}
+
     public function login(Request $request): JsonResponse
     {
         $request->validate(['email' => 'required|email', 'password' => 'required|string']);
@@ -53,8 +57,7 @@ class AuthController extends Controller
         }
 
         try {
-            $client = new GoogleClient(['client_id' => $clientId]);
-            $payload = $client->verifyIdToken($request->credential);
+            $payload = $this->googleIdTokenVerifier->verify($request->credential, $clientId);
 
             if (! $payload) {
                 return response()->json([
