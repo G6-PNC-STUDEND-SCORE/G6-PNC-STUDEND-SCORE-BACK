@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\EmailDomainRule;
+use App\Models\RBAC\Role;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
@@ -16,6 +17,23 @@ class EmailDomainRuleController extends Controller
         return response()->json([
             'success' => true,
             'data' => EmailDomainRule::with('role')->orderBy('domain')->get(),
+        ]);
+    }
+
+    // GET /email-domain-rules/student-domains — active domains configured for the student role,
+    // used by import flows to let the importing user pick which domain new student accounts get
+    // (instead of a synthetic placeholder email). Open to anyone who can import students/scores,
+    // not just admins.
+    public function studentDomains(): JsonResponse
+    {
+        $studentRoleId = Role::where('slug', 'student')->value('id');
+
+        return response()->json([
+            'success' => true,
+            'data' => EmailDomainRule::active()
+                ->where('role_id', $studentRoleId)
+                ->orderBy('domain')
+                ->get(['id', 'domain']),
         ]);
     }
 

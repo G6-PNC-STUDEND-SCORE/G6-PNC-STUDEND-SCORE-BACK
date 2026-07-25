@@ -5,7 +5,6 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\AssessmentType;
 use App\Models\GradeBoundary;
-use App\Models\RBAC\Role;
 use App\Models\Score;
 use App\Models\ScoreDetail;
 use App\Models\Student;
@@ -14,7 +13,7 @@ use App\Models\StudentSubjectEnrollment;
 use App\Models\Subject;
 use App\Models\SubjectOffering;
 use App\Models\Term;
-use App\Models\User;
+use App\Services\StudentImportService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
@@ -23,6 +22,10 @@ use Illuminate\Support\Facades\Http;
 
 class SpreadsheetController extends Controller
 {
+    public function __construct(private readonly StudentImportService $studentImportService)
+    {
+    }
+
     /**
      * GET /spreadsheet/subjects
      * List all subjects grouped by term using the subject_term pivot table.
@@ -628,6 +631,7 @@ class SpreadsheetController extends Controller
             'student_id' => 'nullable|integer|exists:students,id',
             'student_name' => 'nullable|string|max:100',
             'student_number' => 'nullable|string|max:50',
+            'email_domain' => 'nullable|string|max:255',
         ]);
 
         $offering = SubjectOffering::where('subject_id', $subject->id)
@@ -649,10 +653,11 @@ class SpreadsheetController extends Controller
                     // Use findOrCreateStudent to deduplicate globally — checks by
                     // student_id_number first, then by name+generation, so the same
                     // student added to multiple subjects gets one record, not N.
-                    $student = $this->findOrCreateStudent(
+                    $student = $this->studentImportService->findOrCreateStudent(
                         $request->student_number ?: null,
                         $request->student_name ?: null,
-                        $offering->class?->generation_id
+                        $offering->class?->generation_id,
+                        $request->email_domain ?: null
                     );
                 }
 
@@ -730,80 +735,7 @@ class SpreadsheetController extends Controller
         // is a dead relation) — the real path to an offering's generation is via its class.
         $generationId = $offering->class?->generation_id ?? $student->generation_id;
 
-        $history = StudentClassHistory::where('student_id', $student->id)
-            ->where('class_id', $offering->class_id)
-            ->where('generation_id', $generationId)
-            ->where('status', 'active')
-            ->first();
-
-        if ($history) {
-            return $history;
-        }
-
-        StudentClassHistory::where('student_id', $student->id)
-            ->where('status', 'active')
-            ->update(['status' => 'transferred', 'end_date' => now()]);
-
-        return StudentClassHistory::create([
-            'student_id' => $student->id,
-            'class_id' => $offering->class_id,
-            'generation_id' => $generationId,
-            'start_date' => now(),
-            'status' => 'active',
-        ]);
-    }
-
-    /**
-     * Find an existing student globally (by student_id_number, then by name), or create a new
-     * one if no confident match exists. This is the single dedup choke point for all
-     * score-sheet import/enrollment paths — previously each one searched only within the
-     * current subject's offerings, so the same real student got a fresh duplicate row per
-     * subject they were enrolled in.
-     */
-    private function findOrCreateStudent(?string $studentIdNumber, ?string $studentName, ?int $generationId, ?string $passwordHash = null): Student
-    {
-        $studentIdNumber = $studentIdNumber !== null ? trim($studentIdNumber) : null;
-        $studentName = $studentName !== null ? trim($studentName) : null;
-
-        if ($studentIdNumber) {
-            $existing = Student::where('student_id_number', $studentIdNumber)->first();
-            if ($existing) {
-                return $existing;
-            }
-        }
-
-        if ($studentName) {
-            $matches = Student::whereHas('user', function ($q) use ($studentName) {
-                    $q->whereRaw('LOWER(TRIM(name)) = ?', [mb_strtolower($studentName)]);
-                })
-                ->when($generationId, fn ($q) => $q->where(function ($q2) use ($generationId) {
-                    $q2->where('generation_id', $generationId)->orWhereNull('generation_id');
-                }))
-                ->get();
-
-            // Only trust an unambiguous match — if this name already belongs to more than one
-            // student, don't guess which one it is; fall through to creating a new record
-            // rather than risk silently merging two different people's data.
-            if ($matches->count() === 1) {
-                return $matches->first();
-            }
-        }
-
-        $studentRoleId = Role::where('slug', 'student')->value('id');
-        $user = User::create([
-            'name' => $studentName ?: 'Imported Student',
-            'email' => 'imported_' . uniqid() . '@example.com',
-            'password' => $passwordHash ?? bcrypt('password'),
-            'role_id' => $studentRoleId,
-            'status' => 'active',
-        ]);
-
-        return Student::create([
-            'user_id' => $user->id,
-            'student_id_number' => $studentIdNumber ?: app(\App\Services\StudentNumberService::class)->createSequence(now()->year),
-            'generation_id' => $generationId,
-            'is_placeholder' => true,
-        ]);
+        return $this->studentImportService->assignActiveClass($student, $offering->class_id, $generationId);
     }
 
     /**
@@ -815,6 +747,7 @@ class SpreadsheetController extends Controller
         $request->validate([
             'student_name' => 'nullable|string|max:100',
             'student_number' => 'nullable|string|max:50',
+            'email_domain' => 'nullable|string|max:255',
         ]);
 
         try {
@@ -887,23 +820,14 @@ class SpreadsheetController extends Controller
                     if ($student) {
                         $student->user->update(['name' => $newName]);
                     } else {
-                        // Create a new user + student for this enrollment
-                        $email = 'student_' . uniqid() . '@example.com';
-                        $studentRoleId = \App\Models\RBAC\Role::where('slug', 'student')->value('id');
-                        $user = User::create([
-                            'name' => $newName,
-                            'email' => $email,
-                            'password' => bcrypt('password'),
-                            'role_id' => $studentRoleId,
-                            'status' => 'active',
-                        ]);
-                        $intakeYear = now()->year;
-                        $studentNumber = app(\App\Services\StudentNumberService::class)->createSequence($intakeYear);
-                        $student = Student::create([
-                            'user_id' => $user->id,
-                            'student_id_number' => $studentNumber,
-                            'is_placeholder' => true,
-                        ]);
+                        // Create a new user + student for this enrollment, via the same
+                        // shared service every other import path uses.
+                        $student = $this->studentImportService->findOrCreateStudent(
+                            null,
+                            $newName,
+                            null,
+                            $request->email_domain ?: null
+                        );
                         $enrollment->update(['student_id' => $student->id]);
                     }
                 }
@@ -1030,7 +954,10 @@ class SpreadsheetController extends Controller
 
         $request->validate([
             'csv_content' => 'required|string',
+            'email_domain' => 'nullable|string|max:255',
         ]);
+
+        $emailDomain = $request->email_domain ?: null;
 
         $lines = explode("\n", $request->csv_content);
         if (count($lines) < 2) {
@@ -1084,7 +1011,7 @@ class SpreadsheetController extends Controller
 
                 // Find or create the STUDENT globally — not scoped to this subject/term — so a
                 // student already enrolled in other subjects is reused instead of re-duplicated.
-                $student = $this->findOrCreateStudent($studentNumber ?: null, $studentName ?: null, $offering->class?->generation_id, $defaultPasswordHash);
+                $student = $this->studentImportService->findOrCreateStudent($studentNumber ?: null, $studentName ?: null, $offering->class?->generation_id, $emailDomain, $defaultPasswordHash);
 
                 // Then, separately, find or create THIS student's enrollment in this subject/term
                 // (any of its class offerings — a student only ever needs one enrollment here).
@@ -1198,8 +1125,10 @@ class SpreadsheetController extends Controller
             'rows.*.student_name' => 'required|string|max:255',
             'rows.*.student_number' => 'nullable|string|max:50',
             'rows.*.marks' => 'nullable|array',
+            'email_domain' => 'nullable|string|max:255',
         ]);
 
+        $emailDomain = $request->email_domain ?: null;
         $rows = $request->rows;
         $offeringIds = SubjectOffering::where('subject_id', $subject->id)
             ->where('term_id', $term->id)
@@ -1249,7 +1178,7 @@ class SpreadsheetController extends Controller
 
                 // Find or create the STUDENT globally — not scoped to this subject/term — so a
                 // student already enrolled in other subjects is reused instead of re-duplicated.
-                $student = $this->findOrCreateStudent($studentNumber ?: null, $studentName ?: null, $offering->class?->generation_id, $defaultPasswordHash);
+                $student = $this->studentImportService->findOrCreateStudent($studentNumber ?: null, $studentName ?: null, $offering->class?->generation_id, $emailDomain, $defaultPasswordHash);
 
                 // Then, separately, find or create THIS student's enrollment in this subject/term.
                 $enrollment = StudentSubjectEnrollment::where('student_id', $student->id)

@@ -7,6 +7,7 @@ use App\Models\Score;
 use App\Models\Student;
 use App\Models\StudentClassHistory;
 use App\Models\StudentSubjectEnrollment;
+use App\Services\StudentImportService;
 use App\Services\StudentNumberService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -16,7 +17,8 @@ use Illuminate\Support\Facades\Hash;
 class StudentController extends Controller
 {
     public function __construct(
-        private readonly StudentNumberService $studentNumberService
+        private readonly StudentNumberService $studentNumberService,
+        private readonly StudentImportService $studentImportService
     ) {}
 
     // GET /students — admin & teacher see all, student sees only themselves
@@ -29,25 +31,16 @@ class StudentController extends Controller
         if ($user->hasRole('student')) {
             $query->where('user_id', $user->id);
         } else {
-            // Only show real students (not placeholders created via score sheet imports)
-            // and who have at least one active enrollment.
-            $query->where(function ($q) {
-                      $q->whereNull('is_placeholder')
-                        ->orWhere('is_placeholder', false);
-                  })
-                  ->whereHas('enrollments', fn ($e) => $e->where('status', 'enrolled'));
+            // Show every student with at least one active enrollment — including those
+            // created via score-sheet import (is_placeholder=true). That flag only ever
+            // meant "auto-created rather than manually entered by an admin," not "hide
+            // this student forever": once StudentImportService's global dedup (matching by
+            // student_id_number, then name+generation) is in place, an imported student IS
+            // a real student and belongs in this list like any other.
+            $query->whereHas('enrollments', fn ($e) => $e->where('status', 'enrolled'));
         }
 
         $students = $query->get();
-
-        // Deduplicate by (name + student_id_number) — when the same student is added
-        // to multiple subjects via the score sheet, separate placeholder Student records
-        // are created for each subject. This ensures the same person appears only once
-        // even if they have enrollments in multiple subjects, while two different students
-        // who happen to share a name (but have different IDs) still both appear.
-        $students = $students->unique(fn ($s) =>
-            ($s->user?->name ?? '') . '|' . ($s->student_id_number ?? '')
-        )->values();
 
         return response()->json([
             'students' => $students,
@@ -370,66 +363,58 @@ class StudentController extends Controller
             'students.*.gender' => 'nullable|in:Male,Female',
             'students.*.status' => 'nullable|in:active,inactive',
             'students.*.class'  => 'nullable|string|max:255',
+            'email_domain'      => 'nullable|string|max:255',
         ]);
+
+        $emailDomain = $data['email_domain'] ?? null;
 
         DB::beginTransaction();
         try {
             $imported = 0;
-            $skipped = [];
-            $intakeYear = now()->year;
+            $reused = [];
 
             foreach ($data['students'] as $index => $row) {
                 $studentName = $row['name'];
                 $rowNumber = $index + 1;
 
-                // Create or find user
-                $user = \App\Models\User::firstOrCreate(
-                    ['name' => $studentName],
-                    [
-                        'email'    => strtolower(str_replace(' ', '.', $studentName)) . '.' . uniqid() . '@student.edu',
-                        'password' => Hash::make('password123'),
-                        'gender'   => $row['gender'] ?? null,
-                        'status'   => $row['status'] ?? 'active',
-                    ]
+                $class = !empty($row['class']) ? \App\Models\SchoolClass::where('name', $row['class'])->first() : null;
+                $generationId = $class?->generation_id;
+
+                // Same global dedup choke point as the score-sheet import — matches by name
+                // (scoped to generation when known) before creating a new student, so a student
+                // already known to the system (e.g. via another subject's import) is reused
+                // here instead of duplicated.
+                $wasExisting = false;
+                if ($studentName) {
+                    $normalized = mb_strtolower(trim($studentName));
+                    $wasExisting = \App\Models\Student::whereHas('user', fn ($q) => $q->whereRaw('LOWER(TRIM(name)) = ?', [$normalized]))
+                        ->when($generationId, fn ($q) => $q->where(fn ($q2) => $q2->where('generation_id', $generationId)->orWhereNull('generation_id')))
+                        ->exists();
+                }
+
+                $student = $this->studentImportService->findOrCreateStudent(
+                    null,
+                    $studentName,
+                    $generationId,
+                    $emailDomain
                 );
 
-                // Check if this user is already linked to a student record
-                $existingStudent = \App\Models\Student::where('user_id', $user->id)->first();
-                if ($existingStudent) {
-                    $skipped[] = [
-                        'row'    => $rowNumber,
-                        'name'   => $studentName,
-                        'reason' => "Student already exists (ID: {$existingStudent->id}, User ID: {$user->id})",
-                    ];
-                    continue;
+                if ($wasExisting) {
+                    $reused[] = ['row' => $rowNumber, 'name' => $studentName];
                 }
 
-                // Assign student role
-                $studentRole = \App\Models\RBAC\Role::where('slug', 'student')->first();
-                if ($studentRole && $user->role_id !== $studentRole->id) {
-                    $user->update(['role_id' => $studentRole->id]);
-                }
-
-                // Create student number
-                $studentIdNumber = $this->studentNumberService->createSequence($intakeYear);
-
-                // Create student record
-                $student = \App\Models\Student::create([
-                    'user_id'           => $user->id,
-                    'student_id_number'  => $studentIdNumber,
+                $userUpdates = array_filter([
+                    'gender' => $row['gender'] ?? null,
+                    'status' => $row['status'] ?? null,
                 ]);
+                if (!empty($userUpdates)) {
+                    $student->user->update($userUpdates);
+                }
 
-                // Assign class if specified
-                if (!empty($row['class'])) {
-                    $class = \App\Models\SchoolClass::where('name', $row['class'])->first();
-                    if ($class) {
-                        \App\Models\StudentClassHistory::create([
-                            'student_id' => $student->id,
-                            'class_id'   => $class->id,
-                            'start_date' => now(),
-                            'status'     => 'active',
-                        ]);
-                    }
+                // Assign/update class if specified — reassigns rather than duplicating the
+                // active class history when this student already has one.
+                if ($class) {
+                    $this->studentImportService->assignActiveClass($student, $class->id, $generationId);
                 }
 
                 $imported++;
@@ -437,23 +422,12 @@ class StudentController extends Controller
 
             DB::commit();
 
-            if (!empty($skipped)) {
-                $skippedNames = collect($skipped)->pluck('name')->implode(', ');
-
-                if ($imported === 0) {
-                    // All students already exist — return an error so the user sees the message
-                    $namesList = collect($skipped)->map(fn($s) => "'{$s['name']}'")->implode(', ');
-                    return response()->json([
-                        'message'  => "Import failed — student {$namesList} already exist" . (count($skipped) === 1 ? 's' : '') . ". Please remove " . (count($skipped) === 1 ? 'it' : 'them') . " from your file and try again.",
-                        'imported' => 0,
-                        'skipped'  => $skipped,
-                    ], 409);
-                }
-
+            if (!empty($reused)) {
+                $reusedNames = collect($reused)->pluck('name')->implode(', ');
                 return response()->json([
-                    'message'  => "Imported {$imported} student(s) successfully. Skipped " . count($skipped) . " existing record(s): {$skippedNames}.",
+                    'message'  => "Imported {$imported} student(s). " . count($reused) . " matched existing record(s) and were updated instead of duplicated: {$reusedNames}.",
                     'imported' => $imported,
-                    'skipped'  => $skipped,
+                    'reused'   => $reused,
                 ]);
             }
 

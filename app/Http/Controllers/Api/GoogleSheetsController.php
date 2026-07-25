@@ -11,6 +11,7 @@ use App\Models\Subject;
 use App\Models\SubjectOffering;
 use App\Models\Term;
 use App\Models\User;
+use App\Services\StudentImportService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -19,6 +20,10 @@ use Illuminate\Support\Facades\Log;
 
 class GoogleSheetsController extends Controller
 {
+    public function __construct(private readonly StudentImportService $studentImportService)
+    {
+    }
+
     /**
      * Outgoing HTTP client for Google API calls, pinned to a bundled CA file.
      * php.ini on this machine points curl.cainfo/openssl.cafile at a missing
@@ -444,7 +449,10 @@ class GoogleSheetsController extends Controller
             'term_id' => 'required|exists:terms,id',
             'spreadsheet_id' => 'required|string',
             'access_token' => 'nullable|string',
+            'email_domain' => 'nullable|string|max:255',
         ]);
+
+        $emailDomain = $request->email_domain ?: null;
 
         $subject = Subject::findOrFail($request->subject_id);
         $term = Term::findOrFail($request->term_id);
@@ -597,7 +605,35 @@ class GoogleSheetsController extends Controller
                             ->first();
                     }
 
-                    if (!$enrollment) continue;
+                    // No existing enrollment for this subject+term — rather than silently
+                    // dropping the row, create (or reuse, via the same global dedup as every
+                    // other import path) the student and enroll them here.
+                    if (!$enrollment) {
+                        if (!$studentName && !$studentNumber) continue;
+
+                        $offering = SubjectOffering::whereIn('id', $offeringIds)->first();
+                        if (!$offering) continue;
+
+                        $student = $this->studentImportService->findOrCreateStudent(
+                            $studentNumber ?: null,
+                            $studentName ?: null,
+                            $offering->class?->generation_id,
+                            $emailDomain
+                        );
+
+                        $studentClassHistory = $this->studentImportService->assignActiveClass(
+                            $student,
+                            $offering->class_id,
+                            $offering->class?->generation_id
+                        );
+
+                        $enrollment = StudentSubjectEnrollment::create([
+                            'student_id' => $student->id,
+                            'student_class_history_id' => $studentClassHistory->id,
+                            'subject_offering_id' => $offering->id,
+                            'status' => 'enrolled',
+                        ]);
+                    }
 
                     // Sync the Student Name / Student ID cells too — the score sheet page lets
                     // these two be edited inline same as any score cell, so an edit made
