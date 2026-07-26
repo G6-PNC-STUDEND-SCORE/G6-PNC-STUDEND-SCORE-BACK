@@ -272,7 +272,7 @@ class SpreadsheetController extends Controller
             ->get();
 
         $assessmentTypes = AssessmentType::where('is_active', true)
-            ->orderBy('id')
+            ->orderByRaw("FIELD(code, 'participation') DESC, id")
             ->get(['id', 'code', 'name', 'weight_percent']);
 
         return [
@@ -378,7 +378,7 @@ class SpreadsheetController extends Controller
     public function addDetail(Request $request, Subject $subject, Term $term): JsonResponse
     {
         $request->validate([
-            'type' => 'required|in:quiz,assignment,midterm,final,project',
+            'type' => 'required|string|max:50',
             'label' => 'required|string|max:50',
             'max_score' => 'nullable|integer|min:1',
             'order_number' => 'nullable|integer',

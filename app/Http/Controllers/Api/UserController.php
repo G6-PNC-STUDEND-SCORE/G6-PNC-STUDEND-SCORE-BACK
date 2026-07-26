@@ -73,6 +73,10 @@ class UserController extends Controller
     {
         $user->load('role:id,name,slug');
 
+        if ($user->isTeacher()) {
+            $user->load('teacher.classes', 'teacher.offerings.subject', 'teacher.offerings.class');
+        }
+
         return response()->json([
             'success' => true,
             'data'    => $user,

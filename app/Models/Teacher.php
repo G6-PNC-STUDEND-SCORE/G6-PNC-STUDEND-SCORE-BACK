@@ -5,6 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use App\Models\SubjectOffering;
 class Teacher extends Model
 {
 
@@ -31,5 +32,10 @@ class Teacher extends Model
     public function classes(): HasMany
     {
         return $this->hasMany(SchoolClass::class, 'teacher_id');
+    }
+
+    public function offerings(): HasMany
+    {
+        return $this->hasMany(SubjectOffering::class, 'teacher_id');
     }
 }

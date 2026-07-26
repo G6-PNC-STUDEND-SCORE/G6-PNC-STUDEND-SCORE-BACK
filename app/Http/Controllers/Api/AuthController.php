@@ -8,6 +8,7 @@ use App\Models\Student;
 use App\Models\Teacher;
 use App\Models\User;
 use App\Notifications\PasswordResetNotification;
+use App\Services\ActivityLogService;
 use App\Services\Auth\GoogleIdTokenVerifierInterface;
 use App\Services\StudentNumberService;
 use Illuminate\Http\JsonResponse;
@@ -21,7 +22,8 @@ use Illuminate\Support\Str;
 class AuthController extends Controller
 {
     public function __construct(
-        private readonly GoogleIdTokenVerifierInterface $googleIdTokenVerifier
+        private readonly GoogleIdTokenVerifierInterface $googleIdTokenVerifier,
+        private readonly ActivityLogService $activityLogService
     ) {}
 
     public function login(Request $request): JsonResponse
@@ -35,6 +37,7 @@ class AuthController extends Controller
         }
 
         $user->update(['last_login_at' => now()]);
+        $this->activityLogService->logLogin($user);
 
         return response()->json([
             'user' => $this->userData($user),
@@ -120,6 +123,7 @@ class AuthController extends Controller
             }
 
             $user->update(['last_login_at' => now()]);
+            $this->activityLogService->logLogin($user);
 
             $token = $user->createToken('api-token')->plainTextToken;
 
@@ -138,7 +142,9 @@ class AuthController extends Controller
 
     public function logout(Request $request): JsonResponse
     {
-        $request->user()->currentAccessToken()->delete();
+        $user = $request->user();
+        $this->activityLogService->logLogout($user);
+        $user->currentAccessToken()->delete();
 
         return response()->json(['message' => 'Logged out successfully']);
     }

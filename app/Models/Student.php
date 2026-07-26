@@ -16,6 +16,8 @@ class Student extends Model
         'is_placeholder',
     ];
 
+    protected $appends = ['class'];
+
     protected function casts(): array
     {
         return [

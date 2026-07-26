@@ -13,6 +13,7 @@ use App\Http\Controllers\Api\GoogleSheetsController;
 use App\Http\Controllers\Api\GradeBoundaryController;
 use App\Http\Controllers\Api\ProfileController;
 use App\Http\Controllers\Api\ReportCardController;
+use App\Http\Controllers\Api\ReportController;
 use App\Http\Controllers\Api\StudentPortalController;
 use App\Http\Controllers\Api\PermissionController;
 use App\Http\Controllers\Api\ScoreController;
@@ -96,6 +97,7 @@ Route::middleware('auth:sanctum')->group(function () {
     // ── Activity Logs ────────────────────────────────────────────
     Route::get('/chart/recent-activity', [ChartController::class, 'recentActivity'])->middleware('permission:view-activity-logs');
     Route::get('/activity-logs', [ActivityLogController::class, 'index'])->middleware('permission:view-activity-logs');
+    Route::post('/activity-logs/bulk-delete', [ActivityLogController::class, 'bulkDestroy'])->middleware('auth:sanctum');
 
     // ── Students ─────────────────────────────────────────────────
     Route::get('/students', [StudentController::class, 'index'])->middleware('permission:view-students');
@@ -192,6 +194,19 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/report-cards', [ReportCardController::class, 'index'])->middleware('permission:view-report-cards');
     Route::get('/report-cards/{reportCard}', [ReportCardController::class, 'show'])->middleware('permission:view-report-cards');
     Route::post('/subject-offerings/{offering}/generate-report-cards', [ReportCardController::class, 'generateByOffering'])->middleware('permission:generate-report-cards');
+
+    // ── Reports (analytics for the Reports page) ─────────────────
+    // Staff-only: the student role also carries view-reports (for its own portal
+    // views), and these endpoints expose the whole cohort's scores — so the role
+    // gate matches the frontend route meta rather than the permission alone.
+    Route::middleware(['role:admin,teacher', 'permission:view-reports'])->prefix('reports')->group(function () {
+        Route::get('/filters', [ReportController::class, 'filters']);
+        Route::get('/overview', [ReportController::class, 'overview']);
+        Route::get('/class-performance', [ReportController::class, 'classPerformance']);
+        Route::get('/subject-ranking', [ReportController::class, 'subjectRanking']);
+        Route::get('/student-ranking', [ReportController::class, 'studentRanking']);
+        Route::get('/students/{student}/report-card', [ReportController::class, 'studentReportCard']);
+    });
 
     // ── Transcripts ───────────────────────────────────────────────
     Route::get('/transcripts', [ReportCardController::class, 'transcriptIndex'])->middleware('permission:view-report-cards');

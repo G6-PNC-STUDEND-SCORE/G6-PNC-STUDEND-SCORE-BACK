@@ -76,4 +76,27 @@ class ActivityLogController extends Controller
             ],
         ]);
     }
+
+    /**
+     * Bulk delete activity logs (admin only).
+     */
+    public function bulkDestroy(Request $request): JsonResponse
+    {
+        if (!$request->user() || !$request->user()->isAdmin()) {
+            return response()->json(['message' => 'Unauthorized.'], 403);
+        }
+
+        $request->validate([
+            'ids'   => 'required|array',
+            'ids.*' => 'integer|exists:activity_logs,id',
+        ]);
+
+        $count = ActivityLog::whereIn('id', $request->ids)->delete();
+
+        return response()->json([
+            'success' => true,
+            'message' => "{$count} log(s) deleted successfully.",
+            'data'    => ['deleted_count' => $count],
+        ]);
+    }
 }
