@@ -4,10 +4,16 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Concerns\ApiResponds;
 use App\Http\Controllers\Controller;
+use App\Http\Resources\ClassRankingResource;
+use App\Http\Resources\ClassSummaryResource;
+use App\Http\Resources\StudentReportResource;
 use App\Models\Student;
 use App\Services\ReportService;
+use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
+use Throwable;
 
 /**
  * Analytical reports for admins and teachers (Reports page).
@@ -51,6 +57,63 @@ class ReportController extends Controller
     public function studentReportCard(Request $request, Student $student): JsonResponse
     {
         return $this->success($this->reports->studentReportCard($student, $this->scope($request)));
+    }
+
+    public function studentReport(int $studentId): JsonResponse
+    {
+        try {
+            return $this->success(
+                StudentReportResource::make($this->reports->studentApiReport($studentId))->resolve(),
+                'Student report retrieved successfully.'
+            );
+        } catch (ModelNotFoundException) {
+            return $this->error('Student not found.', 404);
+        } catch (Throwable $exception) {
+            Log::error('Failed to retrieve student report.', [
+                'student_id' => $studentId,
+                'exception' => $exception,
+            ]);
+
+            return $this->error('Unable to retrieve student report.', 500);
+        }
+    }
+
+    public function classSummary(int $classId): JsonResponse
+    {
+        try {
+            return $this->success(
+                ClassSummaryResource::make($this->reports->classApiSummary($classId))->resolve(),
+                'Class summary retrieved successfully.'
+            );
+        } catch (ModelNotFoundException) {
+            return $this->error('Class not found.', 404);
+        } catch (Throwable $exception) {
+            Log::error('Failed to retrieve class summary.', [
+                'class_id' => $classId,
+                'exception' => $exception,
+            ]);
+
+            return $this->error('Unable to retrieve class summary.', 500);
+        }
+    }
+
+    public function classRankings(int $classId): JsonResponse
+    {
+        try {
+            return $this->success(
+                ClassRankingResource::collection($this->reports->classApiRankings($classId))->resolve(),
+                'Class rankings retrieved successfully.'
+            );
+        } catch (ModelNotFoundException) {
+            return $this->error('Class not found.', 404);
+        } catch (Throwable $exception) {
+            Log::error('Failed to retrieve class rankings.', [
+                'class_id' => $classId,
+                'exception' => $exception,
+            ]);
+
+            return $this->error('Unable to retrieve class rankings.', 500);
+        }
     }
 
     /**

@@ -632,4 +632,150 @@ class ReportService
             'class_average' => $averages->count() ? round($averages->avg(), 2) : null,
         ];
     }
+
+    public function studentApiReport(int $studentId): array
+    {
+        $student = Student::with(['user', 'classHistories.class'])->findOrFail($studentId);
+
+        $rows = $this->studentReportRows($student->id);
+        $first = $rows->first();
+        $subjects = $rows->map(fn ($row) => [
+            'subject_id' => (int) $row->subject_id,
+            'subject_name' => $row->subject_name,
+            'score' => round((float) $row->score, 2),
+        ])->values();
+
+        $totalScore = round((float) $subjects->sum('score'), 2);
+        $averageScore = $subjects->count() > 0 ? round($subjects->avg('score'), 2) : 0.0;
+        $classId = $first?->class_id ?? $student->class?->id;
+
+        return [
+            'student_id' => $student->id,
+            'student_name' => $student->user?->name,
+            'class_name' => $first?->class_name ?? $student->class?->name,
+            'academic_year' => $first?->academic_year,
+            'semester' => $first?->semester,
+            'subjects' => $subjects->all(),
+            'total_score' => $totalScore,
+            'average_score' => $averageScore,
+            'rank' => $classId ? $this->classRankingPosition((int) $classId, $student->id) : null,
+        ];
+    }
+
+    public function classApiSummary(int $classId): array
+    {
+        $class = SchoolClass::findOrFail($classId);
+        $rankings = collect($this->classApiRankings($class->id));
+        $totalStudents = DB::table('student_class_histories')
+            ->where('class_id', $class->id)
+            ->where('status', 'active')
+            ->distinct()
+            ->count('student_id');
+
+        if ($totalStudents === 0) {
+            $totalStudents = DB::table('student_subject_enrollments as enr')
+                ->join('subject_offerings as off', 'enr.subject_offering_id', '=', 'off.id')
+                ->join('student_class_histories as hist', 'enr.student_class_history_id', '=', 'hist.id')
+                ->where('off.class_id', $class->id)
+                ->whereNotIn('enr.status', self::EXCLUDED_ENROLLMENT_STATUSES)
+                ->distinct()
+                ->count('hist.student_id');
+        }
+
+        $passCount = $rankings->where('average_score', '>=', $this->passMark())->count();
+
+        return [
+            'class_id' => $class->id,
+            'class_name' => $class->name,
+            'total_students' => $totalStudents,
+            'highest_average' => $rankings->isNotEmpty() ? round((float) $rankings->max('average_score'), 2) : 0.0,
+            'lowest_average' => $rankings->isNotEmpty() ? round((float) $rankings->min('average_score'), 2) : 0.0,
+            'class_average' => $rankings->isNotEmpty() ? round((float) $rankings->avg('average_score'), 2) : 0.0,
+            'pass_count' => $passCount,
+            'fail_count' => max(0, $totalStudents - $passCount),
+        ];
+    }
+
+    public function classApiRankings(int $classId): array
+    {
+        SchoolClass::findOrFail($classId);
+
+        $rows = $this->studentAveragesForClass($classId);
+        $ranked = [];
+        $previousAverage = null;
+        $currentRank = 0;
+
+        foreach ($rows as $index => $row) {
+            $average = round((float) $row->average_score, 2);
+            if ($previousAverage === null || $average !== $previousAverage) {
+                $currentRank = $index + 1;
+            }
+
+            $ranked[] = [
+                'rank' => $currentRank,
+                'student_id' => (int) $row->student_id,
+                'student_name' => $row->student_name,
+                'total_score' => round((float) $row->total_score, 2),
+                'average_score' => $average,
+            ];
+
+            $previousAverage = $average;
+        }
+
+        return $ranked;
+    }
+
+    private function studentReportRows(int $studentId)
+    {
+        return DB::table('scores')
+            ->join('student_subject_enrollments as enr', 'scores.student_subject_enrollment_id', '=', 'enr.id')
+            ->join('student_class_histories as hist', 'enr.student_class_history_id', '=', 'hist.id')
+            ->join('subject_offerings as off', 'enr.subject_offering_id', '=', 'off.id')
+            ->join('subjects as subj', 'off.subject_id', '=', 'subj.id')
+            ->join('classes as cls', 'off.class_id', '=', 'cls.id')
+            ->leftJoin('academic_years as ay', 'off.academic_year_id', '=', 'ay.id')
+            ->leftJoin('terms as trm', 'off.term_id', '=', 'trm.id')
+            ->where('hist.student_id', $studentId)
+            ->whereNotIn('enr.status', self::EXCLUDED_ENROLLMENT_STATUSES)
+            ->whereNotNull('scores.total_weighted_score')
+            ->select(
+                'subj.id as subject_id',
+                'subj.name as subject_name',
+                'scores.total_weighted_score as score',
+                'cls.id as class_id',
+                'cls.name as class_name',
+                'ay.name as academic_year',
+                'trm.name as semester',
+            )
+            ->orderBy('trm.term_number')
+            ->orderBy('subj.name')
+            ->get();
+    }
+
+    private function studentAveragesForClass(int $classId)
+    {
+        return DB::table('scores')
+            ->join('student_subject_enrollments as enr', 'scores.student_subject_enrollment_id', '=', 'enr.id')
+            ->join('subject_offerings as off', 'enr.subject_offering_id', '=', 'off.id')
+            ->join('student_class_histories as hist', 'enr.student_class_history_id', '=', 'hist.id')
+            ->join('students as stu', 'hist.student_id', '=', 'stu.id')
+            ->join('users as stu_user', 'stu.user_id', '=', 'stu_user.id')
+            ->where('off.class_id', $classId)
+            ->whereNotIn('enr.status', self::EXCLUDED_ENROLLMENT_STATUSES)
+            ->whereNotNull('scores.total_weighted_score')
+            ->select('stu.id as student_id', 'stu_user.name as student_name')
+            ->selectRaw('SUM(scores.total_weighted_score) as total_score')
+            ->selectRaw('AVG(scores.total_weighted_score) as average_score')
+            ->groupBy('stu.id', 'stu_user.name')
+            ->orderByDesc('average_score')
+            ->orderBy('stu_user.name')
+            ->get();
+    }
+
+    private function classRankingPosition(int $classId, int $studentId): ?int
+    {
+        $student = collect($this->classApiRankings($classId))->firstWhere('student_id', $studentId);
+
+        return $student['rank'] ?? null;
+    }
 }

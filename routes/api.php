@@ -200,6 +200,9 @@ Route::middleware('auth:sanctum')->group(function () {
     // views), and these endpoints expose the whole cohort's scores — so the role
     // gate matches the frontend route meta rather than the permission alone.
     Route::middleware(['role:admin,teacher', 'permission:view-reports'])->prefix('reports')->group(function () {
+        Route::get('/student/{studentId}', [ReportController::class, 'studentReport'])->whereNumber('studentId');
+        Route::get('/class/{classId}/rankings', [ReportController::class, 'classRankings'])->whereNumber('classId');
+        Route::get('/class/{classId}', [ReportController::class, 'classSummary'])->whereNumber('classId');
         Route::get('/filters', [ReportController::class, 'filters']);
         Route::get('/overview', [ReportController::class, 'overview']);
         Route::get('/class-performance', [ReportController::class, 'classPerformance']);
@@ -227,4 +230,3 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/google-sheets/import', [GoogleSheetsController::class, 'importSheet'])->middleware('permission:create-scores');
     Route::post('/google-sheets/ensure-shared', [GoogleSheetsController::class, 'ensureShared'])->middleware('permission:view-scores');
 });
-
