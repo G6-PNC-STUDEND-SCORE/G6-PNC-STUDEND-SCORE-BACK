@@ -15,18 +15,9 @@ class SubjectController extends Controller
     // GET /subjects — all authenticated users
     public function index(Request $request): JsonResponse
     {
-        $user  = $request->user();
+        // Visibility is role/permission-scoped (view-subjects), not per-teacher-assignment —
+        // every teacher sees the same subject list, matching what the role is granted.
         $query = Subject::with(['offerings.teacher.user', 'offerings.class', 'offerings.term', 'teachers.user']);
-
-        // Teacher only sees their own subjects (through offerings)
-        if ($user->hasRole('teacher')) {
-            $teacher = Teacher::where('user_id', $user->id)->first();
-            if ($teacher) {
-                $query->whereHas('offerings', function ($q) use ($teacher) {
-                    $q->where('teacher_id', $teacher->id);
-                });
-            }
-        }
 
         if ($request->search) {
             $query->where('name', 'like', "%{$request->search}%");
@@ -75,6 +66,8 @@ class SubjectController extends Controller
             'teacher_ids.*' => 'integer|exists:teachers,id',
             'class_ids'     => 'nullable|array',
             'class_ids.*'   => 'integer|exists:classes,id',
+            'term_ids'      => 'nullable|array',
+            'term_ids.*'    => 'integer|exists:terms,id',
         ]);
 
         $request->merge(['status' => ucfirst(strtolower($request->status ?? 'Active'))]);
@@ -90,6 +83,11 @@ class SubjectController extends Controller
 
         if ($request->has('teacher_ids')) {
             $subject->teachers()->sync($request->teacher_ids ?? []);
+        }
+
+        // Sync terms BEFORE class offerings so syncClassOfferings can find them
+        if ($request->has('term_ids')) {
+            $subject->terms()->sync($request->term_ids ?? []);
         }
 
         // Create SubjectOffering records for each class_id
@@ -202,8 +200,15 @@ class SubjectController extends Controller
             return; // No academic year exists yet
         }
 
-        // Get all active terms for this subject (via subject_term pivot)
+        // Get all active terms for this subject (via subject_term pivot).
+        // If no terms are assigned yet, fall back to ALL terms in the current
+        // academic year so class offerings are still created.
         $termIds = $subject->terms()->pluck('terms.id')->toArray();
+        if (empty($termIds) && $academicYear) {
+            $termIds = \App\Models\Term::where('academic_year_id', $academicYear->id)
+                ->pluck('id')
+                ->toArray();
+        }
 
         // Get existing offerings for this subject
         $existingOfferings = SubjectOffering::where('subject_id', $subject->id)->get();

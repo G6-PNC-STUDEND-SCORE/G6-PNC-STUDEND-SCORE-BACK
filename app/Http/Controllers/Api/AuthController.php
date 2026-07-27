@@ -3,12 +3,17 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
-use App\Models\RBAC\Role;
+use App\Models\EmailDomainRule;
+use App\Models\Student;
+use App\Models\Teacher;
 use App\Models\User;
 use App\Notifications\PasswordResetNotification;
-use Google\Client as GoogleClient;
+use App\Services\ActivityLogService;
+use App\Services\Auth\GoogleIdTokenVerifierInterface;
+use App\Services\StudentNumberService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Password;
@@ -16,6 +21,11 @@ use Illuminate\Support\Str;
 
 class AuthController extends Controller
 {
+    public function __construct(
+        private readonly GoogleIdTokenVerifierInterface $googleIdTokenVerifier,
+        private readonly ActivityLogService $activityLogService
+    ) {}
+
     public function login(Request $request): JsonResponse
     {
         $request->validate(['email' => 'required|email', 'password' => 'required|string']);
@@ -25,6 +35,9 @@ class AuthController extends Controller
         if (! $user || ! Hash::check($request->password, $user->password)) {
             return response()->json(['message' => 'The provided credentials are incorrect.'], 401);
         }
+
+        $user->update(['last_login_at' => now()]);
+        $this->activityLogService->logLogin($user);
 
         return response()->json([
             'user' => $this->userData($user),
@@ -49,8 +62,7 @@ class AuthController extends Controller
         }
 
         try {
-            $client = new GoogleClient(['client_id' => $clientId]);
-            $payload = $client->verifyIdToken($request->credential);
+            $payload = $this->googleIdTokenVerifier->verify($request->credential, $clientId);
 
             if (! $payload) {
                 return response()->json([
@@ -73,21 +85,45 @@ class AuthController extends Controller
                     // Link Google account to existing user
                     $user->update(['google_id' => $googleId]);
                 } else {
-                    // Create a new user
-                    $user = User::create([
-                        'name' => $name,
-                        'email' => $email,
-                        'password' => Hash::make(Str::random(32)),
-                        'google_id' => $googleId,
-                    ]);
+                    // Brand-new sign-in: the account's role is decided purely by its email
+                    // domain (admin-managed via the "Sign-in Domains" rules) — unrecognized
+                    // domains are rejected outright rather than defaulting to any role.
+                    $emailDomain = Str::lower(Str::after($email, '@'));
+                    $rule = EmailDomainRule::active()->where('domain', $emailDomain)->first();
 
-                    // Assign the teacher role via pivot table
-                    $teacherRole = Role::where('slug', 'teacher')->first();
-                    if ($teacherRole) {
-                        $user->roles()->attach($teacherRole);
+                    if (! $rule) {
+                        return response()->json([
+                            'message' => "This Google account isn't authorized to sign in.",
+                        ], 403);
                     }
+
+                    $user = DB::transaction(function () use ($name, $email, $googleId, $rule) {
+                        $user = User::create([
+                            'name' => $name,
+                            'email' => $email,
+                            'password' => Hash::make(Str::random(32)),
+                            'google_id' => $googleId,
+                            'role_id' => $rule->role_id,
+                            'status' => 'active',
+                        ]);
+
+                        if ($rule->role->slug === 'student') {
+                            $studentNumber = app(StudentNumberService::class)->createSequence(now()->year);
+                            Student::create([
+                                'user_id' => $user->id,
+                                'student_id_number' => $studentNumber,
+                            ]);
+                        } elseif ($rule->role->slug === 'teacher') {
+                            Teacher::create(['user_id' => $user->id]);
+                        }
+
+                        return $user;
+                    });
                 }
             }
+
+            $user->update(['last_login_at' => now()]);
+            $this->activityLogService->logLogin($user);
 
             $token = $user->createToken('api-token')->plainTextToken;
 
@@ -106,7 +142,9 @@ class AuthController extends Controller
 
     public function logout(Request $request): JsonResponse
     {
-        $request->user()->currentAccessToken()->delete();
+        $user = $request->user();
+        $this->activityLogService->logLogout($user);
+        $user->currentAccessToken()->delete();
 
         return response()->json(['message' => 'Logged out successfully']);
     }
@@ -126,9 +164,14 @@ class AuthController extends Controller
         $data = $user->toArray();
         unset($data['role']);
         $data['role'] = $user->role?->slug ?? 'user';
-        $data['permissions'] = $user->isAdmin()
-            ? \App\Models\RBAC\Permission::pluck('slug')->all()
-            : $user->role?->permissions->pluck('slug')->all() ?? [];
+        // Always reflect the role's actual assigned permissions — including for admin, whose
+        // role starts with every permission granted (see PermissionSeeder) but can be trimmed
+        // from the Roles & Permissions page like any other role. This only affects what the
+        // frontend shows/hides (e.g. sidebar links); backend endpoints still let admin through
+        // unconditionally (User::hasPermission()), so admin can never lock themselves out —
+        // this is a personal "what do I want cluttering my own nav" preference, not an actual
+        // access restriction.
+        $data['permissions'] = $user->role?->permissions->pluck('slug')->all() ?? [];
 
         return $data;
     }

@@ -16,8 +16,10 @@ class ScoreDetail extends Model
         'assessment_type_id',
         'label',
         'sequence_number',
+        'order_number',
         'max_score',
         'score',
+        'mark',
     ];
 
     protected function casts(): array

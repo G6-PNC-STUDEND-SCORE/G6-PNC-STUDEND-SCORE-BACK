@@ -28,7 +28,6 @@ class UsersSeeder extends Seeder
         // Get roles
         $adminRole = Role::where('slug', 'admin')->first();
         $teacherRole = Role::where('slug', 'teacher')->first();
-        $studentRole = Role::where('slug', 'student')->first();
 
         // Create Admin user
             User::updateOrCreate(
@@ -44,15 +43,17 @@ class UsersSeeder extends Seeder
 
         // Create Teacher users
         $teacherEmails = [
-            'yon@passerellesnumeriques.org' => 'Yon Teacher',
+            'yon.yen@passerellesnumeriques.org' => 'Yon Teacher',
             'rady.y@passerellesnumeriques.org' => 'Rady Y',
             'him.hey@passerellesnumeriques.org' => 'Him Hey',
+            'mengheang.pho@passerellesnumeriques.org' => 'Meangheang Pho',
         ];
 
         $teacherGenders = [
-            'yon@passerellesnumeriques.org' => 'Male',
-            'rady.y@passerellesnumeriques.org' => 'Female',
+            'yon.yen@passerellesnumeriques.org' => 'Male',
+            'rady.y@passerellesnumeriques.org' => 'Male',
             'him.hey@passerellesnumeriques.org' => 'Male',
+            'mengheang.pho@passerellesnumeriques.org' => 'Male',
         ];
 
         foreach ($teacherEmails as $email => $name) {
@@ -64,38 +65,6 @@ class UsersSeeder extends Seeder
                     'role_id' => $teacherRole->id,
                     'status' => 'active',
                     'gender' => $teacherGenders[$email] ?? 'Male',
-                ]
-            );
-        }
-
-        // Create Student users
-        $studentEmails = [
-            'roeurn.ros@student.passerellesnumeriques.org' => 'Roeurn Ros',
-            'sreyvik.von@student.passerellesnumeriques.org' => 'Sreyvik Von',
-            'makara.pinn@student.passerellesnumeriques.org' => 'Makara Pinn',
-            'makara.pon@student.passerellesnumeriques.org' => 'Makara Pon',
-            'sreymao.lin@student.passerellesnumeriques.org' => 'Sreymao Lin',
-            'ream.khorn@student.passerellesnumeriques.org' => 'Ream Khorn',
-        ];
-
-        $studentGenders = [
-            'roeurn.ros@student.passerellesnumeriques.org' => 'Male',
-            'sreyvik.von@student.passerellesnumeriques.org' => 'Female',
-            'makara.pinn@student.passerellesnumeriques.org' => 'Male',
-            'makara.pon@student.passerellesnumeriques.org' => 'Male',
-            'sreymao.lin@student.passerellesnumeriques.org' => 'Female',
-            'ream.khorn@student.passerellesnumeriques.org' => 'Male',
-        ];
-
-        foreach ($studentEmails as $email => $name) {
-            User::updateOrCreate(
-                ['email' => $email],
-                [
-                    'name' => $name,
-                    'password' => Hash::make('12345678'),
-                    'role_id' => $studentRole->id,
-                    'status' => 'active',
-                    'gender' => $studentGenders[$email] ?? null,
                 ]
             );
         }

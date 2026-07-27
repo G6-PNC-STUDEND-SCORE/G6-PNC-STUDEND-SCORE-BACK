@@ -85,7 +85,7 @@ class ActivityLogService
     /**
      * Easy-access method for logging a create action.
      */
-    public function logCreate(?User $user, string $module, string $description, Model $model, array $newValues = []): ?ActivityLog
+    public function logCreate(?User $user, string $module, string $description, ?Model $model = null, array $newValues = []): ?ActivityLog
     {
         return $this->log($user, 'Create', $module, $description, $model, null, $newValues);
     }
@@ -93,7 +93,7 @@ class ActivityLogService
     /**
      * Easy-access method for logging an update action with old/new value comparison.
      */
-    public function logUpdate(?User $user, string $module, string $description, Model $model, array $oldValues = [], array $newValues = []): ?ActivityLog
+    public function logUpdate(?User $user, string $module, string $description, ?Model $model = null, array $oldValues = [], array $newValues = []): ?ActivityLog
     {
         return $this->log($user, 'Update', $module, $description, $model, $oldValues, $newValues);
     }
@@ -101,7 +101,7 @@ class ActivityLogService
     /**
      * Easy-access method for logging a delete action.
      */
-    public function logDelete(?User $user, string $module, string $description, Model $model, array $oldValues = []): ?ActivityLog
+    public function logDelete(?User $user, string $module, string $description, ?Model $model = null, array $oldValues = []): ?ActivityLog
     {
         return $this->log($user, 'Delete', $module, $description, $model, $oldValues, null);
     }

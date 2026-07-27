@@ -17,6 +17,8 @@ use App\Observers\SubjectObserver;
 use App\Observers\TeacherObserver;
 use App\Observers\UserObserver;
 use App\Services\ActivityLogService;
+use App\Services\Auth\GoogleClientIdTokenVerifier;
+use App\Services\Auth\GoogleIdTokenVerifierInterface;
 use Illuminate\Support\ServiceProvider;
 
 class AppServiceProvider extends ServiceProvider
@@ -31,6 +33,8 @@ class AppServiceProvider extends ServiceProvider
         $this->app->singleton(ActivityLogService::class, function () {
             return new ActivityLogService();
         });
+
+        $this->app->bind(GoogleIdTokenVerifierInterface::class, GoogleClientIdTokenVerifier::class);
     }
 
     /**
