@@ -8,6 +8,7 @@ use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Storage;
 
 class StudentPortalController extends Controller
 {
@@ -80,6 +81,15 @@ class StudentPortalController extends Controller
         $enrollments = $student->enrollments;
         $currentTerm = $this->currentTerm($enrollments);
 
+        $avatarPath = $student->user?->avatar;
+        $avatarDataUrl = null;
+        if ($avatarPath && Storage::disk('public')->exists($avatarPath)) {
+            $fileContents = Storage::disk('public')->get($avatarPath);
+            $mimeType = Storage::disk('public')->mimeType($avatarPath);
+            $base64 = base64_encode($fileContents);
+            $avatarDataUrl = 'data:' . $mimeType . ';base64,' . $base64;
+        }
+
         $profile = [
             'name' => $student->user?->name,
             'studentId' => $student->student_number,
@@ -90,6 +100,7 @@ class StudentPortalController extends Controller
             'currentTerm' => $currentTerm?->name,
             'academicStatus' => ucfirst($student->user?->status ?? 'active'),
             'avatar' => $student->user?->avatar,
+            'avatarDataUrl' => $avatarDataUrl,
         ];
 
         $scored = $enrollments->filter(fn ($e) => $e->score && $e->score->total !== null);
@@ -97,7 +108,7 @@ class StudentPortalController extends Controller
         $gpa = $scored->count() ? round($scored->avg(fn ($e) => $this->gradePoints($e->score->grade ?? $this->gradeFromTotal($e->score->total))), 2) : 0;
 
         $summary = [
-            ['label' => 'Current GPA', 'value' => $gpa, 'decimals' => 2, 'icon' => 'bi bi-speedometer2', 'iconClass' => 'icon-blue', 'subtitle' => 'Out of 4.00'],
+            ['label' => 'Grand', 'value' => $gpa, 'decimals' => 2, 'icon' => 'bi bi-speedometer2', 'iconClass' => 'icon-blue', 'subtitle' => 'Out of 4.00'],
             ['label' => 'Overall Average', 'value' => $average, 'decimals' => 1, 'icon' => 'bi bi-graph-up-arrow', 'iconClass' => 'icon-green', 'subtitle' => 'All subjects'],
             ['label' => 'Current Subjects', 'value' => $currentTerm ? $enrollments->where('subjectOffering.term_id', $currentTerm->id)->count() : $enrollments->count(), 'decimals' => 0, 'icon' => 'bi bi-book-half', 'iconClass' => 'icon-violet', 'subtitle' => 'This term'],
             ['label' => 'Credits Completed', 'value' => $enrollments->count() * self::CREDITS_PER_SUBJECT, 'decimals' => 0, 'icon' => 'bi bi-patch-check', 'iconClass' => 'icon-orange', 'subtitle' => 'of ' . self::TOTAL_CREDITS . ' credits'],
