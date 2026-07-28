@@ -435,6 +435,7 @@ class ReportService
                 'cls.name as class_name',
             )
             ->selectRaw('COUNT(*) as subject_count')
+            ->selectRaw('GROUP_CONCAT(DISTINCT subj.name ORDER BY subj.name SEPARATOR \', \') as subject_names')
             ->selectRaw('SUM(scores.total_weighted_score) as total_score')
             ->selectRaw('AVG(scores.total_weighted_score) as average_score')
             ->selectRaw('MAX(scores.total_weighted_score) as highest_score')
@@ -458,6 +459,7 @@ class ReportService
                 'class_id' => (int) $row->class_id,
                 'class_name' => $row->class_name,
                 'subject_count' => (int) $row->subject_count,
+                'subjects' => $row->subject_names ?? '',
                 'total' => round((float) $row->total_score, 2),
                 'average' => $average,
                 'grade' => $this->gradeFor($average),

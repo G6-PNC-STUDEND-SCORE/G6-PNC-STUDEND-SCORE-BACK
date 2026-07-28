@@ -8,6 +8,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 class AcademicYear extends Model
 {
     protected $fillable = [
+        'year',
         'name',
         'start_date',
         'end_date',

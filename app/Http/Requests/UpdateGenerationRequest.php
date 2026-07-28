@@ -3,7 +3,6 @@
 namespace App\Http\Requests;
 
 use Illuminate\Foundation\Http\FormRequest;
-use Illuminate\Validation\Rule;
 
 class UpdateGenerationRequest extends FormRequest
 {
@@ -15,8 +14,8 @@ class UpdateGenerationRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'year' => ['sometimes', 'integer', Rule::unique('generations', 'year')->ignore($this->route('generation'))],
-            'is_current' => 'sometimes|boolean',
+            'year' => 'sometimes|integer|min:2000|max:2100|unique:generations,year,' . $this->route('generation'),
+            'is_current' => 'boolean',
         ];
     }
 }

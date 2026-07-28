@@ -124,7 +124,11 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::delete('/subjects/{subject}', [SubjectController::class, 'destroy'])->middleware('permission:delete-subjects');
     Route::get('/teachers', [SubjectController::class, 'teachers'])->middleware('permission:view-teachers');
 
-    Route::get('/academic-years', [AcademicYearController::class, 'index']);
+    // ── Academic Years ───────────────────────────────────────────────
+    Route::get('/academic-years', [AcademicYearController::class, 'index'])->middleware('permission:view-academic-years');
+    Route::post('/academic-years', [AcademicYearController::class, 'store'])->middleware('permission:create-academic-years');
+    Route::put('/academic-years/{academic_year}', [AcademicYearController::class, 'update'])->middleware('permission:update-academic-years');
+    Route::delete('/academic-years/{academic_year}', [AcademicYearController::class, 'destroy'])->middleware('permission:delete-academic-years');
 
     // ── Subject-Term Assignments (subject_term pivot) ─────────────
     Route::get('/subject-terms', [SubjectTermController::class, 'index'])->middleware('permission:view-subjects');

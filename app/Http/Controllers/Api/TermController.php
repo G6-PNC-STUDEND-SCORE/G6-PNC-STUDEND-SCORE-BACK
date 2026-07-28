@@ -15,7 +15,7 @@ class TermController extends Controller
 
     public function index(): JsonResponse
     {
-        return $this->success(Term::all(['id', 'name']));
+        return $this->success(Term::orderBy('term_number')->with('academicYear')->get());
     }
 
     public function store(StoreTermRequest $request): JsonResponse
