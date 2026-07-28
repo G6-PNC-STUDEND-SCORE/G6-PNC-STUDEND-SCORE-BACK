@@ -707,6 +707,54 @@ class SpreadsheetController extends Controller
      * DELETE /spreadsheet/subject/{subject}/term/{term}/enrollments/{enrollment}
      * Delete a student enrollment row and its associated score.
      */
+    public function bulkDeleteEnrollments(Request $request, Subject $subject, Term $term): JsonResponse
+    {
+        $request->validate([
+            'enrollment_ids' => 'required|array|min:1',
+            'enrollment_ids.*' => 'integer|exists:student_subject_enrollments,id',
+        ]);
+
+        $enrollmentIds = $request->enrollment_ids;
+        $deleted = 0;
+        $errors = [];
+
+        DB::beginTransaction();
+        try {
+            foreach ($enrollmentIds as $id) {
+                $enrollment = StudentSubjectEnrollment::find($id);
+                if (!$enrollment) continue;
+
+                try {
+                    if ($enrollment->score) {
+                        $enrollment->score->details()->delete();
+                        $enrollment->score->delete();
+                    }
+                    $enrollment->delete();
+                    $deleted++;
+                } catch (\Exception $e) {
+                    $errors[] = "Enrollment {$id}: {$e->getMessage()}";
+                }
+            }
+
+            if ($deleted === 0 && !empty($errors)) {
+                DB::rollBack();
+                return response()->json(['message' => 'Failed to delete any enrollments.', 'errors' => $errors], 500);
+            }
+
+            DB::commit();
+            $this->invalidateSpreadsheetCache($subject, $term);
+            return response()->json([
+                'success' => true,
+                'message' => "{$deleted} enrollment(s) deleted successfully.",
+                'deleted_count' => $deleted,
+                'errors' => $errors,
+            ]);
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return response()->json(['message' => $e->getMessage()], 500);
+        }
+    }
+
     public function deleteEnrollment(Subject $subject, Term $term, StudentSubjectEnrollment $enrollment): JsonResponse
     {
         DB::beginTransaction();

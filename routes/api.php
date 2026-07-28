@@ -167,6 +167,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/spreadsheet/subject/{subject}/term/{term}/enrollments', [SpreadsheetController::class, 'addEnrollment'])->middleware('permission:create-scores');
     Route::put('/spreadsheet/subject/{subject}/term/{term}/enrollments/{enrollment}', [SpreadsheetController::class, 'updateEnrollment'])->middleware('permission:update-scores');
     Route::delete('/spreadsheet/subject/{subject}/term/{term}/enrollments/{enrollment}', [SpreadsheetController::class, 'deleteEnrollment'])->middleware('permission:delete-scores');
+Route::post('/spreadsheet/subject/{subject}/term/{term}/enrollments/bulk-delete', [SpreadsheetController::class, 'bulkDeleteEnrollments'])->middleware('permission:delete-scores');
 
     // ── Grade Boundaries ─────────────────────────────────────────
     Route::get('/grade-boundaries', [GradeBoundaryController::class, 'index'])->middleware('permission:view-grade-boundaries');
