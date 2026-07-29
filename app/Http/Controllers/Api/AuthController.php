@@ -212,6 +212,30 @@ class AuthController extends Controller
         return response()->json(['message' => 'Password reset link sent to your email.']);
     }
 
+    /**
+     * Direct password reset — no email, no token.
+     * User just provides their email and a new password.
+     */
+    public function directResetPassword(Request $request): JsonResponse
+    {
+        $request->validate([
+            'email' => 'required|email',
+            'password' => 'required|string|min:8|confirmed',
+            'password_confirmation' => 'required|string',
+        ]);
+
+        $user = User::where('email', $request->email)->first();
+
+        if (! $user) {
+            return response()->json(['message' => 'No account found with that email address.'], 404);
+        }
+
+        $user->password = Hash::make($request->password);
+        $user->save();
+
+        return response()->json(['message' => 'Password has been reset successfully. You can now sign in.']);
+    }
+
     public function resetPassword(Request $request): JsonResponse
     {
         $request->validate([
