@@ -527,7 +527,7 @@ class ReportService
         $average = $graded->count() ? round($graded->avg('total'), 2) : null;
         $failed = $graded->filter(fn ($s) => $s['result'] === 'fail')->count();
 
-        $classId = (int) ($rows->first()->class_id ?? 0);
+        $classId = (int) ($rows->first()?->class_id ?? 0);
         $rankInfo = $this->rankWithin($filters, $classId, $student->id);
 
         $student->loadMissing(['user', 'generation', 'classHistories.class']);
@@ -629,24 +629,27 @@ class ReportService
             ->selectRaw('ROUND(AVG(scores.total_weighted_score), 2) as class_average')
             ->selectRaw(
                 'COALESCE((
-                    SELECT COUNT(DISTINCT inner_stu.id) + 1
-                    FROM scores AS inner_s
-                    JOIN student_subject_enrollments AS inner_enr ON inner_s.student_subject_enrollment_id = inner_enr.id
-                    JOIN subject_offerings AS inner_off ON inner_enr.subject_offering_id = inner_off.id
-                    JOIN student_class_histories AS inner_hist ON inner_enr.student_class_history_id = inner_hist.id
-                    JOIN students AS inner_stu ON inner_hist.student_id = inner_stu.id
-                    WHERE inner_off.class_id = off.class_id
-                    AND inner_s.total_weighted_score IS NOT NULL
-                    AND inner_stu.id != ?
-                    GROUP BY inner_stu.id
-                    HAVING AVG(inner_s.total_weighted_score) > (
-                        SELECT AVG(inner_s2.total_weighted_score)
-                        FROM scores AS inner_s2
-                        JOIN student_subject_enrollments AS inner_enr2 ON inner_s2.student_subject_enrollment_id = inner_enr2.id
-                        JOIN student_class_histories AS inner_hist2 ON inner_enr2.student_class_history_id = inner_hist2.id
-                        WHERE inner_hist2.student_id = ?
-                        AND inner_s2.total_weighted_score IS NOT NULL
-                    )
+                    SELECT COUNT(*) + 1
+                    FROM (
+                        SELECT 1
+                        FROM scores AS inner_s
+                        JOIN student_subject_enrollments AS inner_enr ON inner_s.student_subject_enrollment_id = inner_enr.id
+                        JOIN subject_offerings AS inner_off ON inner_enr.subject_offering_id = inner_off.id
+                        JOIN student_class_histories AS inner_hist ON inner_enr.student_class_history_id = inner_hist.id
+                        JOIN students AS inner_stu ON inner_hist.student_id = inner_stu.id
+                        WHERE inner_off.class_id = off.class_id
+                        AND inner_s.total_weighted_score IS NOT NULL
+                        AND inner_stu.id != ?
+                        GROUP BY inner_stu.id
+                        HAVING AVG(inner_s.total_weighted_score) > (
+                            SELECT AVG(inner_s2.total_weighted_score)
+                            FROM scores AS inner_s2
+                            JOIN student_subject_enrollments AS inner_enr2 ON inner_s2.student_subject_enrollment_id = inner_enr2.id
+                            JOIN student_class_histories AS inner_hist2 ON inner_enr2.student_class_history_id = inner_hist2.id
+                            WHERE inner_hist2.student_id = ?
+                            AND inner_s2.total_weighted_score IS NOT NULL
+                        )
+                    ) AS ranked
                 ), 1) as student_rank',
                 [$studentId, $studentId]
             )
