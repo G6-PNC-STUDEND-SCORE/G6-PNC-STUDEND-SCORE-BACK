@@ -31,6 +31,7 @@ Route::post('/login', [AuthController::class, 'login']);
 Route::post('/google-login', [AuthController::class, 'googleLogin']);
 Route::post('/forgot-password', [AuthController::class, 'forgotPassword']);
 Route::post('/reset-password', [AuthController::class, 'resetPassword']);
+Route::post('/direct-reset-password', [AuthController::class, 'directResetPassword']);
 
 // These were reachable with zero authentication (no auth:sanctum at all) — same class of
 // student/grade data as /dashboard just below, which already requires it.

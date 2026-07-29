@@ -94,13 +94,12 @@ class StudentPortalController extends Controller
 
         $scored = $enrollments->filter(fn ($e) => $e->score && $e->score->total !== null);
         $average = $scored->count() ? round($scored->avg(fn ($e) => $e->score->total), 2) : 0;
-        $gpa = $scored->count() ? round($scored->avg(fn ($e) => $this->gradePoints($e->score->grade ?? $this->gradeFromTotal($e->score->total))), 2) : 0;
 
         $summary = [
-            ['label' => 'Current GPA', 'value' => $gpa, 'decimals' => 2, 'icon' => 'bi bi-speedometer2', 'iconClass' => 'icon-blue', 'subtitle' => 'Out of 4.00'],
+            ['label' => 'Grad Class', 'value' => $student->generation?->name ?? '—', 'decimals' => 0, 'icon' => 'bi bi-mortarboard', 'iconClass' => 'icon-purple', 'subtitle' => $student->generation?->year ? 'Year ' . $student->generation->year : 'Graduation batch'],
             ['label' => 'Overall Average', 'value' => $average, 'decimals' => 1, 'icon' => 'bi bi-graph-up-arrow', 'iconClass' => 'icon-green', 'subtitle' => 'All subjects'],
             ['label' => 'Current Subjects', 'value' => $currentTerm ? $enrollments->where('subjectOffering.term_id', $currentTerm->id)->count() : $enrollments->count(), 'decimals' => 0, 'icon' => 'bi bi-book-half', 'iconClass' => 'icon-violet', 'subtitle' => 'This term'],
-            ['label' => 'Credits Completed', 'value' => $enrollments->count() * self::CREDITS_PER_SUBJECT, 'decimals' => 0, 'icon' => 'bi bi-patch-check', 'iconClass' => 'icon-orange', 'subtitle' => 'of ' . self::TOTAL_CREDITS . ' credits'],
+            ['label' => 'Course Complete', 'value' => $enrollments->count() * self::CREDITS_PER_SUBJECT, 'decimals' => 0, 'icon' => 'bi bi-patch-check', 'iconClass' => 'icon-orange', 'subtitle' => 'of ' . self::TOTAL_CREDITS . ' exam'],
         ];
 
         $termTrends = $this->termTrends($enrollments);
@@ -130,7 +129,7 @@ class StudentPortalController extends Controller
         })->values();
 
         $progress = [
-            ['label' => 'Credits Completed', 'value' => round($enrollments->count() * self::CREDITS_PER_SUBJECT / self::TOTAL_CREDITS * 100), 'display' => ($enrollments->count() * self::CREDITS_PER_SUBJECT) . ' / ' . self::TOTAL_CREDITS, 'color' => '#2563eb', 'icon' => 'bi bi-patch-check'],
+            ['label' => 'Course Complete', 'value' => round($enrollments->count() * self::CREDITS_PER_SUBJECT / self::TOTAL_CREDITS * 100), 'display' => ($enrollments->count() * self::CREDITS_PER_SUBJECT) . ' / ' . self::TOTAL_CREDITS, 'color' => '#2563eb', 'icon' => 'bi bi-patch-check'],
             ['label' => 'Semester Progress', 'value' => $currentTerm ? 68 : 0, 'display' => $currentTerm ? '68%' : '—', 'color' => '#0ea5e9', 'icon' => 'bi bi-bar-chart'],
             ['label' => 'Graduation Progress', 'value' => round($enrollments->count() * self::CREDITS_PER_SUBJECT / self::TOTAL_CREDITS * 100), 'display' => round($enrollments->count() * self::CREDITS_PER_SUBJECT / self::TOTAL_CREDITS * 100) . '%', 'color' => '#f97316', 'icon' => 'bi bi-mortarboard'],
         ];

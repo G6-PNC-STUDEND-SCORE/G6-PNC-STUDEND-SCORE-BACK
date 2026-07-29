@@ -360,8 +360,10 @@ class SpreadsheetController extends Controller
      */
     public function updateDetail(Request $request, Subject $subject, Term $term, ScoreDetail $detail): JsonResponse
     {
+        $maxAllowed = $detail->max_score ?? 100;
+
         $request->validate([
-            'mark' => 'nullable|numeric|min:0|max:100',
+            'mark' => "nullable|numeric|min:0|max:{$maxAllowed}",
         ]);
 
         $detail->update(['score' => $request->mark]);
